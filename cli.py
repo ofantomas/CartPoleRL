@@ -7,16 +7,16 @@ import time
 import click
 import matplotlib
 
-from .display import plot_training_runs
-from .agents import ReinforceAgent, RandomAgent, \
+from display import plot_training_runs
+from agents import ReinforceAgent, RandomAgent, \
     CreditBaselineAgent, ValueBaselineAgent, OneStepCreditWithValueAgent, QTargetAgent, QAdvantageAgent, \
     HCAStateConditionalQAgent, MultiStepCreditAgent, RandomMultWithValueAgent, CreditBaselineMixtureAgent, MICAAgent, \
     MICAValueAgent, ValueModAgent, MICAMixtureAgent, CreditBaselineMixtureCounterfactualAgent, \
     CreditBaselineCounterfactualAgent, MICACounterfactualAgent, MICAMixtureCounterfactualAgent
-from .envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
+from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
     CounterexampleBandit2Env
-from .train import train
+from train import train
 
 MODEL_OPTIONS = {
     "reinforce",
