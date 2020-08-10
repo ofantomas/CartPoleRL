@@ -3,7 +3,8 @@ from agents import ReinforceAgent, RandomAgent, \
     CreditBaselineAgent, ValueBaselineAgent, OneStepCreditWithValueAgent, QTargetAgent, QAdvantageAgent, \
     HCAStateConditionalQAgent, MultiStepCreditAgent, RandomMultWithValueAgent, CreditBaselineMixtureAgent, MICAAgent, \
     MICAValueAgent, ValueModAgent, MICAMixtureAgent, CreditBaselineMixtureCounterfactualAgent, \
-    CreditBaselineCounterfactualAgent, MICACounterfactualAgent, MICAMixtureCounterfactualAgent
+    CreditBaselineCounterfactualAgent, MICACounterfactualAgent, MICAMixtureCounterfactualAgent, \
+    MixtureVBaselineAgent
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
     CounterexampleBandit2Env
@@ -63,6 +64,8 @@ AGENT_CONSTRUCTORS = {
         CreditBaselineMixtureAgent(env_shape, alpha, gamma, possible_r, mix_ratio=0.75),
     "credit_baseline_mixture_50_cf": lambda env_shape, alpha, gamma, possible_r, epi_length:
         CreditBaselineMixtureCounterfactualAgent(env_shape, alpha, gamma, possible_r, mix_ratio=0.5),
+    'mixture_v': lambda env_shape, alpha, gamma, possible_r, epi_length:
+        MixtureVBaselineAgent(env_shape, alpha, gamma, possible_r, mix_ratio=0.5),
     "mica": lambda env_shape, alpha, gamma, possible_r, epi_length:
         MICAAgent(env_shape, alpha, gamma, possible_r),
     "mica_cf": lambda env_shape, alpha, gamma, possible_r, epi_length:

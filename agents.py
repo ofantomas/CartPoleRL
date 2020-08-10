@@ -448,6 +448,49 @@ class CreditBaselineMixtureCounterfactualAgent(CreditBaselineAgent):
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
 
+class MixtureVBaselineAgent(CreditBaselineAgent):
+    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
+        super().__init__(env_shape, alpha, gamma, possible_rs)
+        self.mix_ratio = mix_ratio
+
+    # Given a trajectory for one episode, update the policy
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+        dones = np.asarray(dones)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+        self.update_values(states, cum_rewards)
+        vals = torch.index_select(self.value, 0, states)
+        adv = cum_rewards - vals
+
+        # Update credit counts and compute credit ratio
+        credit_ratio = self.compute_update_credit_mixture(states, actions, cum_rewards, self.mix_ratio)
+
+        # Sample a batch of alternative actions from the policy
+        alt_actions = self.select_action(states, False)
+
+        # If we have not seen this action before, we assume P(r|s,a)=P(r|s)
+        alt_credit_ratio = self.compute_credit_mixture(states, alt_actions, cum_rewards, self.mix_ratio)
+
+        advantage = adv * (1 - credit_ratio)
+
+        alt_advantage = adv * (1 - alt_credit_ratio)
+
+        # Next, compute eligibility for each set of actions
+        loss, cats, mean_var = self.compute_eligibility(states, actions, advantage)
+        alt_loss, alt_cats, alt_mean_var = self.compute_eligibility(states, alt_actions, alt_advantage)
+
+        # Now update the combined objective
+        self.pi_opt.zero_grad()
+        (loss + alt_loss).mean().backward()
+        self.pi_opt.step()  # SGD step
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
+
+
 # Like above, but with only counterfactual training and no mixture
 class CreditBaselineCounterfactualAgent(CreditBaselineAgent):
     def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array):
