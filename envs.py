@@ -90,6 +90,8 @@ class AbstractGridEnv(AbstractTabEnv):
 class FrozenLakeEnv(AbstractGridEnv):
     def __init__(self):
         super().__init__(16, 4, 0)
+        # distribution P(a|s, Z=1) of size n_actions x n_states
+        self.pt_a_sz = None
 
     def init_maps(self):
         self.state_map = np.array(
@@ -101,10 +103,10 @@ class FrozenLakeEnv(AbstractGridEnv):
         self.reward_map = np.zeros((4, 4), dtype='int32')
         self.reward_map[3, 3] = 1
         self.done_map = np.zeros((4, 4), dtype='bool')
-        done_states = [5, 7, 11, 12, 15]
+        self.done_states = [5, 7, 11, 12, 15]
         for i in range(4):
             for j in range(4):
-                if self.state_map[i, j] in done_states:
+                if self.state_map[i, j] in self.done_states:
                     self.done_map[i, j] = True
 
     # Step env with noisy transitions
@@ -118,6 +120,53 @@ class FrozenLakeEnv(AbstractGridEnv):
             act = (act + 1) % 4
 
         return super().step(act)
+
+    def initialize_hindsight(self, episode_length, pi_a_s):
+        # compute transition probabilities
+        p_s_sa = np.zeros((self.n_states, self.n_states, self.n_actions))
+        for s in range(self.n_states):
+            for a in range(self.n_actions):
+                # according to policy
+                next_s = self.transitions[s, a]
+                p_s_sa[next_s, s, a] += 0.8
+                for shift in (-1, 1):
+                    changed_a = (a + shift) % 4
+                    next_s = self.transitions[s, changed_a]
+                    p_s_sa[next_s, s, a] += 0.1
+
+            # recalculate for terminal states
+            if s in self.done_states:
+                p_s_sa[:, s, :] = 0.
+                p_s_sa[s, s, :] = 1.
+
+        # compute state to state probabilities
+        p_s_s = (p_s_sa * pi_a_s.T).sum(2)
+
+        # only (terminal) state giving reward
+        success_state = np.flatnonzero(self.reward_map.flatten()).item()
+
+        # compute foresight distributions
+        pt_z_sa = np.zeros((episode_length, self.n_states, self.n_actions))
+        pt_z_s = np.zeros((episode_length, self.n_states))
+        p_s_s_power = np.eye(self.n_states)
+        for t in range(episode_length - 1, -1, -1):
+            pt_z_sa[t] = (p_s_s_power[:, :, None, None] * p_s_sa).sum(1)[success_state]
+            pt_z_s[t] = (pt_z_sa[t] * pi_a_s.T).sum(1)
+            p_s_s_power = p_s_s@p_s_s_power
+
+        # compute hindsight distributions, nan where they are not defined
+        pt_a_sz = np.full((episode_length, self.n_actions, self.n_states), np.nan)
+        for t in range(episode_length):
+            nominator = pt_z_sa[t].T * pi_a_s
+            denominator = pt_z_s[t]
+            np.divide(nominator, denominator, out=pt_a_sz[t], where=(denominator != 0))
+
+        self.pt_a_sz = pt_a_sz
+
+    def get_hindsight_probability(self, state, action, t):
+        if self.pt_a_sz is None:
+            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+        return self.pt_a_sz[t, action, state]
 
 
 class TabEnv:
