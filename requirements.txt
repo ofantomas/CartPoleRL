@@ -4,3 +4,4 @@ click
 matplotlib
 scipy
 tqdm
+wandb
