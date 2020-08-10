@@ -1,9 +1,125 @@
 # Environment definitions for tabular CCA
+from abc import ABC, abstractmethod
 import random
-
 import numpy as np
 
+
 # Parent class for tabular mdps
+class AbstractTabEnv(ABC):
+    def __init__(self, n_states, n_actions, initial_pos):
+        self.n_states = n_states
+        self.n_actions = n_actions
+        self.initial_pos = initial_pos
+        self.current_pos = initial_pos
+
+        self.transitions = None
+        self.rewards = None
+        self.dones = None
+        self.possible_r_values = None
+        self.init_env_data()
+
+    @abstractmethod
+    def init_env_data(self):
+        pass
+
+    def reset(self, new_initial_pos=None):
+        if new_initial_pos is not None:
+            self.initial_pos = new_initial_pos
+            self.current_pos = new_initial_pos
+        else:
+            self.current_pos = int(self.initial_pos)  # Cast to avoid shallow copy pitfalls
+        return self.current_pos
+
+    def is_done(self):
+        return self.dones[self.current_pos]
+
+    # TODO consider allowing noisy transitions
+    def step(self, act):
+        if self.transitions[self.current_pos, act] is not None:
+            self.current_pos = self.transitions[self.current_pos, act]
+        reward = self.rewards[self.current_pos]
+
+        return self.current_pos, reward, self.is_done()
+
+
+class AbstractGridEnv(AbstractTabEnv):
+    @abstractmethod
+    def __init__(self, n_states, n_actions, initial_pos):
+        self.state_map = None
+        self.done_map = None
+        self.reward_map = None
+        super().__init__(n_states, n_actions, initial_pos)
+
+    @abstractmethod
+    def init_maps(self):
+        pass
+
+    @staticmethod
+    def apply_action(i, j, action):
+        if action == 0:
+            return i - 1, j
+        if action == 1:
+            return i, j + 1
+        if action == 2:
+            return i + 1, j
+        if action == 3:
+            return i, j - 1
+        raise Exception(f"No such action: {action}!")
+
+    def init_env_data(self):
+        self.init_maps()
+        assert set(self.state_map.flatten().tolist()) == set(range(self.n_states))
+        self.transitions = np.zeros((self.n_states, self.n_actions), dtype='int32')
+        self.rewards = np.zeros((self.n_states,), dtype='int32')
+        self.dones = np.zeros((self.n_states,), dtype='bool')
+        for i in range(self.state_map.shape[0]):
+            for j in range(self.state_map.shape[1]):
+                s1 = self.state_map[i, j]
+                self.dones[s1] = self.done_map[i, j]
+                self.rewards[s1] = self.reward_map[i, j]
+                for action in range(self.n_actions):
+                    (i2, j2) = self.apply_action(i, j, action)
+                    i2 = max(0, min(i2, self.state_map.shape[0]-1))
+                    j2 = max(0, min(j2, self.state_map.shape[1] - 1))
+                    s2 = self.state_map[i2, j2]
+                    self.transitions[s1, action] = s2
+        self.possible_r_values = list(set(self.reward_map.flatten().tolist()))
+
+
+# Classic tabular MDP, consists of a 4x4 grid with "holes" that end the episode in failure and stochastic transitions
+class FrozenLakeEnv(AbstractGridEnv):
+    def __init__(self):
+        super().__init__(16, 4, 0)
+
+    def init_maps(self):
+        self.state_map = np.array(
+            [[0, 1, 2, 3],
+             [4, 5, 6, 7],
+             [8, 9, 10, 11],
+             [12, 13, 14, 15]], dtype='int32')
+
+        self.reward_map = np.zeros((4, 4), dtype='int32')
+        self.reward_map[3, 3] = 1
+        self.done_map = np.zeros((4, 4), dtype='bool')
+        done_states = [5, 7, 11, 12, 15]
+        for i in range(4):
+            for j in range(4):
+                if self.state_map[i, j] in done_states:
+                    self.done_map[i, j] = True
+
+    # Step env with noisy transitions
+    def step(self, act):
+        rnd = random.random()
+        # 10% chance of action proceeding the one selected
+        if rnd < 0.1:
+            act = (act - 1) % 4
+        # Another 10% chance of the action following the one selected
+        elif rnd < 0.2:
+            act = (act + 1) % 4
+
+        return super().step(act)
+
+
 class TabEnv:
     def __init__(self, n_states, n_actions, initial_pos):
         # Transition matrix of possible transitions between states
@@ -11,25 +127,25 @@ class TabEnv:
         self.n_actions = n_actions
         # Each element is the state transitioned to from [state, action]
         self.transitions = np.zeros((n_states, n_actions), dtype=np.int)
-        self.rewards = np.zeros((n_states,)) # Reward as function of state, for now
+        self.rewards = np.zeros((n_states,))  # Reward as function of state, for now
         self.initial_pos = initial_pos
         self.current_pos = initial_pos
 
-        self.possible_r_values = [0] # Array of reward values (rationals only) for credit computation
+        self.possible_r_values = [0]  # Array of reward values (rationals only) for credit computation
 
         # Other setup to be done by child classes
 
-    def reset(self, new_initial_pos = None):
+    def reset(self, new_initial_pos=None):
         if new_initial_pos is not None:
             self.initial_pos = new_initial_pos
             self.current_pos = new_initial_pos
         else:
-            self.current_pos = int(self.initial_pos) # Cast to avoid shallow copy pitfalls
+            self.current_pos = int(self.initial_pos)  # Cast to avoid shallow copy pitfalls
         return self.current_pos
 
     # Return if done
     def is_done(self):
-        return False # Child classes extend this
+        return False  # Child classes extend this
 
     # Step env
     # TODO consider allowing noisy transitions
@@ -398,7 +514,7 @@ class SmallGridNotDoneEnv(SmallGridEnv):
         return False
 
 # Classic tabular MDP, consists of a 4x4 grid with "holes" that end the episode in failure and stochastic transitions
-class FrozenLakeEnv(TabEnv):
+class FrozenLakeEnvLegacy(TabEnv):
     def __init__(self):
         super().__init__(16, 4, 0)
 
