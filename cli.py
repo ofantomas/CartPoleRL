@@ -143,7 +143,7 @@ def run(
         else:
             env = ENV_CONSTRUCTORS[env_type]()
 
-        env_shape = env.transitions
+        env_shape = env.transitions.shape
 
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")

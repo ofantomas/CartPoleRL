@@ -1,4 +1,4 @@
-import math
+from itertools import groupby
 import numpy as np
 import torch
 
@@ -16,72 +16,51 @@ class RandomAgent:
 
 # Basic reinforce
 class ReinforceAgent:
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array = None):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array = None):
         self.alpha = alpha
         self.gamma = gamma
-        self.env_shape = env_shape.shape
-        self.pi = torch.ones(env_shape.shape, dtype=torch.float, requires_grad=True)
-
+        self.env_shape = env_shape
+        self.pi = torch.ones(self.env_shape, dtype=torch.float, requires_grad=True)
         self.pi_opt = torch.optim.SGD(params=[self.pi], lr=self.alpha)
 
     def select_action(self, state, inference):
-        probs = torch.softmax(self.pi[state], 0)
+        probs = self.pi[state].softmax(0)
         if inference:  # Take maxprob
-            act = torch.as_tensor(np.random.choice(np.where(probs == probs.max())[0]))
+            act = probs.argmax()
         else:
             cat = torch.distributions.Categorical(probs=probs)
             act = cat.sample()
-
         return act
 
     # Accumulate rewards across time
     def accumulate_rewards(self, rewards, dones):
         acc_rewards = np.zeros_like(rewards)
-        for ind in range(rewards.size-1, -1, -1):
-            curr_r = rewards[ind]
-            if ind+1 < rewards.size:
-                future_r = acc_rewards[ind+1] * (1 - dones[ind])  # dones mask out future episodes
-            else:
-                future_r = 0
-            acc_rewards[ind] = curr_r + self.gamma * future_r
+        for idx, r in reversed(list(enumerate(rewards))):
+            if idx < len(rewards) - 1:
+                acc_rewards[idx] += self.gamma * acc_rewards[idx + 1] * (1 - dones[idx])
+            acc_rewards[idx] += r
         return acc_rewards
 
     # Computes the eligibility given states/actions/advantages. Does not update the policy
     def compute_eligibility(self, states, actions, advantage):
+        logits = self.pi[states]
+        policy = torch.distributions.Categorical(logits=logits)
+        log_probs = policy.log_prob(actions)
+        loss = - log_probs * advantage.detach()
 
-        weights_4_states = torch.index_select(self.pi, 0, states)
-        cats = torch.distributions.Categorical(logits=weights_4_states)
-        probs_4_acts = -cats.log_prob(actions)
-
-        loss = probs_4_acts * advantage.detach()
-
-        # Hacky sort losses by state action tuple so we can get variance per state-action pair
-        # TODO reduce jank
-        losses_per_state_action = []
-        for sa in range(self.env_shape[0] * self.env_shape[1]):
-            losses_per_state_action.append([])
-        for exp in range(states.size(0)):
-            losses_per_state_action[states[exp] * self.env_shape[1] + actions[exp]].append(loss[exp].item())
-
-        vars_per_state_action = [0.0] * len(losses_per_state_action)
-        for sa in range(len(losses_per_state_action)):
-            curr_losses = torch.as_tensor(losses_per_state_action[sa])
-            if curr_losses.size(0) > 0:
-                curr_var = curr_losses.var().item()
-                if not math.isnan(curr_var):
-                    vars_per_state_action[sa] = curr_losses.var().item()
-
-        mean_var = torch.as_tensor(vars_per_state_action).mean()
-
-        return loss, cats, mean_var
+        # Compute mean variance of losses per sa pair
+        tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
+        tuple_list.sort(key=lambda x: x[:2])  # groupby needs it
+        grouped = groupby(tuple_list, lambda x: x[:2])
+        variances = [np.var([x[2] for x in lst]) for k, lst in grouped]
+        mean_var = np.mean(variances)
+        return loss, policy, mean_var
 
     # Does what it says, for easy re-use across methods
     # Returns policy gradient/loss values and the parametrized policy distribution, for logging
-    def compute_update_eligibility(self, states, actions, advantage):
-
+    def make_pg_step(self, states, actions, advantage):
         loss, cats, mean_var = self.compute_eligibility(states, actions, advantage)
 
-        # Compute grads w.r.t. the params for the chosen actions... Shame to use autograd but oh well.
         # TODO consider doing this manually?
         self.pi_opt.zero_grad()
         loss.mean().backward()
@@ -100,39 +79,34 @@ class ReinforceAgent:
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
         # Next, compute elegibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, cum_rewards)
+        loss, cats, mean_var = self.make_pg_step(states, actions, cum_rewards)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), cum_rewards.mean()
 
 
 # Extension of reinforce to include a value function baseline
 class ValueBaselineAgent(ReinforceAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float):
         super().__init__(env_shape, alpha, gamma)
-
-        self.value = torch.zeros(env_shape.shape[0], dtype=torch.float)
+        self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
+        self.value_opt = torch.optim.SGD(params=[self.value], lr=alpha)
 
     def update_values(self, states, cum_rewards):
-        vals = torch.index_select(self.value, 0, states)
-        val_loss = cum_rewards - vals
+        vals = self.value[states]
+        val_loss = (vals - cum_rewards)**2
 
-        for s in range(val_loss.size(0)):
-            self.value[states[s]] += val_loss[s] * (self.alpha / val_loss.size(0))
+        self.value_opt.zero_grad()
+        val_loss.mean().backward()
+        self.value_opt.step()
 
         return val_loss
 
     # Compute value-baseline advantage values, and update the value function
-    def compute_update_value_advantage(self, states, cum_rewards):
+    def compute_advantage(self, states, cum_rewards):
         # Subtract value baseline
-        vals = torch.index_select(self.value, 0, states)
-        val_loss = cum_rewards - vals
-        adv = val_loss
-
-        # Compute manual value loss
-        for s in range(val_loss.size(0)):
-            self.value[states[s]] += val_loss[s] * (self.alpha / val_loss.size(0))
-
-        return adv, val_loss
+        vals = self.value[states]
+        advantage = cum_rewards - vals.detach()
+        return advantage
 
     def update(self, states, actions, rewards, next_states, dones):
         states = torch.LongTensor(states)
@@ -143,45 +117,24 @@ class ValueBaselineAgent(ReinforceAgent):
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
         # Subtract value baseline
-        adv, val_loss = self.compute_update_value_advantage(states, cum_rewards)
+        adv = self.compute_advantage(states, cum_rewards)
+        self.update_values(states, cum_rewards)
 
         # Update the policy
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, adv)
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
-
-
-# Similar to ValueBaselineAgent, but with a multiplier on the value baseline (so it can be made bigger or added instead)
-class ValueModAgent(ValueBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, value_mult: float = 1):
-        super().__init__(env_shape, alpha, gamma)
-        self.value_mult = value_mult
-
-    # Like the parent, but with a multiplier
-    def compute_update_value_advantage(self, states, cum_rewards):
-        # Subtract value baseline
-        vals = torch.index_select(self.value, 0, states)
-        # Use original diff to fit value function
-        val_loss = cum_rewards - vals
-
-        adv = (cum_rewards - vals * self.value_mult).detach()
-
-        # Compute manual value loss
-        for s in range(val_loss.size(0)):
-            self.value[states[s]] += val_loss[s] * (self.alpha / val_loss.size(0))
-
-        return adv, val_loss
 
 
 # Parent credit agent class, contains credit-baseline algorithm plus a lot of functions for other extensions
 # Extensions should inherit this class and overload update+add functions as needed
 # PSA: Avoid additional layers of inheritance!
 class CreditBaselineAgent(ValueBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array):
         super().__init__(env_shape, alpha, gamma)
 
-        self.n_state_actions = env_shape.shape
-        self.n_states = env_shape.shape[0]
+        self.n_state_actions = env_shape
+        self.n_states = env_shape[0]
         self.possible_rs = possible_rs
 
         self.s_counts = None
@@ -257,6 +210,9 @@ class CreditBaselineAgent(ValueBaselineAgent):
             self.s_r_counts[states[t], r_ind] += 1
             self.sa_r_counts[states[t], actions[t], r_ind] += 1
 
+        for arr in [self.s_counts, self.sa_counts, self.s_r_counts, self.sa_r_counts]:
+            arr *= 0.9
+
     # Computes credit, but with a mixture param
     def compute_credit_mixture(self, states, actions, cum_rewards, mix_ratio):
 
@@ -321,9 +277,34 @@ class CreditBaselineAgent(ValueBaselineAgent):
         advantage = cum_rewards * (1 - credit_ratio)
 
         # Next, compute eligibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
+
+# =======================================================================================================
+# =======================================================================================================
+
+
+# Similar to ValueBaselineAgent, but with a multiplier on the value baseline (so it can be made bigger or added instead)
+class ValueModAgent(ValueBaselineAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, value_mult: float = 1):
+        super().__init__(env_shape, alpha, gamma)
+        self.value_mult = value_mult
+
+    # Like the parent, but with a multiplier
+    def compute_update_value_advantage(self, states, cum_rewards):
+        # Subtract value baseline
+        vals = torch.index_select(self.value, 0, states)
+        # Use original diff to fit value function
+        val_loss = cum_rewards - vals
+
+        adv = (cum_rewards - vals * self.value_mult).detach()
+
+        # Compute manual value loss
+        for s in range(val_loss.size(0)):
+            self.value[states[s]] += val_loss[s] * (self.alpha / val_loss.size(0))
+
+        return adv, val_loss
 
 
 # Implements MICA, a.k.a. advantage=r*P(r|s,a)/P(r|s)
@@ -346,14 +327,14 @@ class MICAAgent(CreditBaselineAgent):
         advantage = cum_rewards * (1/credit_ratio - 1)
 
         # Next, compute eligibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
 
 # Extension of MICA, computes advantage=r*P(r|s,a)/P(r|s) - V(s)
 class MICAValueAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array):
         super().__init__(env_shape, alpha, gamma, possible_rs)
 
     def update(self, states, actions, rewards, next_states, dones):
@@ -375,14 +356,14 @@ class MICAValueAgent(CreditBaselineAgent):
         advantage, val_loss = self.compute_update_value_advantage(states, advantage)
 
         # Next, compute eligibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
 
 # As Credit baseline, but with a mixture of P(r|s,a)  and P(r|s) in the denominator
 class CreditBaselineMixtureAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
         super().__init__(env_shape, alpha, gamma, possible_rs)
         self.mix_ratio = mix_ratio
 
@@ -402,14 +383,14 @@ class CreditBaselineMixtureAgent(CreditBaselineAgent):
         advantage = cum_rewards * (1 - credit_ratio)
 
         # Next, compute eligibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
 
 # Like above, but with added counterfactual action training
 class CreditBaselineMixtureCounterfactualAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
         super().__init__(env_shape, alpha, gamma, possible_rs)
         self.mix_ratio = mix_ratio
 
@@ -449,7 +430,7 @@ class CreditBaselineMixtureCounterfactualAgent(CreditBaselineAgent):
 
 
 class MixtureVBaselineAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
         super().__init__(env_shape, alpha, gamma, possible_rs)
         self.mix_ratio = mix_ratio
 
@@ -493,7 +474,7 @@ class MixtureVBaselineAgent(CreditBaselineAgent):
 
 # Like above, but with only counterfactual training and no mixture
 class CreditBaselineCounterfactualAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array):
         super().__init__(env_shape, alpha, gamma, possible_rs)
 
     # Given a trajectory for one episode, update the policy
@@ -536,7 +517,7 @@ class CreditBaselineCounterfactualAgent(CreditBaselineAgent):
 # May require more complex probability training than counts, not sure yet
 # TODO make this not assume mix=0.5
 class MICAMixtureCounterfactualAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
         super().__init__(env_shape, alpha, gamma, possible_rs)
         self.mix_ratio = mix_ratio
 
@@ -576,7 +557,7 @@ class MICAMixtureCounterfactualAgent(CreditBaselineAgent):
 
 # Mixture credit, but for MICA formulation
 class MICAMixtureAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
         super().__init__(env_shape, alpha, gamma, possible_rs)
         self.mix_ratio = mix_ratio
 
@@ -595,7 +576,7 @@ class MICAMixtureAgent(CreditBaselineAgent):
         advantage = cum_rewards * (1/credit_ratio - 1)
 
         # Next, compute eligibility for each set of actions
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
@@ -603,7 +584,7 @@ class MICAMixtureAgent(CreditBaselineAgent):
 # MICA with counterfactual training
 # Does contrastive/negative credit sampling for training the policy
 class MICACounterfactualAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array):
         super().__init__(env_shape, alpha, gamma, possible_rs)
 
     def update(self, states, actions, rewards, next_states, dones):
@@ -644,12 +625,12 @@ class MICACounterfactualAgent(CreditBaselineAgent):
 # TODO refactor to unify with the other 1-step credit alg, since they are very similar now.
 # TODO Refactor WIP, delete this when done
 class OneStepCreditWithValueAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
                  possible_rs: np.array, credit_type: str = "mica"):
         super().__init__(env_shape, alpha, gamma, possible_rs)
 
-        self.n_state_actions = env_shape.shape
-        self.n_states = env_shape.shape[0]
+        self.n_state_actions = env_shape
+        self.n_states = env_shape[0]
         self.possible_rs = [-1, 0, 1]
         self.credit_type = credit_type
 
@@ -682,16 +663,16 @@ class OneStepCreditWithValueAgent(CreditBaselineAgent):
             advantage = advantage * (1 - credit_ratio)
 
         # Next, compute eligibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
 
 # Control case, instead of using credit, simply multiply rewards by a random value >1
 class RandomMultWithValueAgent(ValueBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array):
         super().__init__(env_shape, alpha, gamma, possible_rs)
 
-        n_states = env_shape.shape[0]
+        n_states = env_shape[0]
 
         self.value = torch.zeros(n_states, dtype=torch.float)
 
@@ -711,17 +692,17 @@ class RandomMultWithValueAgent(ValueBaselineAgent):
         advantage, val_loss = self.compute_update_value_advantage(states, credit_weighted_rewards)
 
         # Next, compute eligibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
 
 # Extension of reinforce to include a Q function reward target
 class QTargetAgent(ReinforceAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float):
         super().__init__(env_shape, alpha, gamma)
 
-        self.Q = torch.zeros(env_shape.shape, dtype=torch.float)
+        self.Q = torch.zeros(env_shape, dtype=torch.float)
 
     # Compute q-baseline advantage values, and update the q function
     # Unlike other methods, the policy target here is the Q-value directly
@@ -750,17 +731,17 @@ class QTargetAgent(ReinforceAgent):
         adv, q_loss = self.compute_update_q_values(states, actions, cum_rewards)
 
         # Update the policy
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, adv)
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
 
 
 class QAdvantageAgent(ValueBaselineAgent, QTargetAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float):
         super(ValueBaselineAgent, self).__init__(env_shape, alpha, gamma)
 
-        self.Q = torch.zeros(env_shape.shape, dtype=torch.float)
-        self.value = torch.zeros(env_shape.shape[0], dtype=torch.float)
+        self.Q = torch.zeros(env_shape, dtype=torch.float)
+        self.value = torch.zeros(env_shape[0], dtype=torch.float)
 
     def update(self, states, actions, rewards, next_states, dones):
         states = torch.LongTensor(states)
@@ -777,28 +758,28 @@ class QAdvantageAgent(ValueBaselineAgent, QTargetAgent):
         adv, val_loss = self.compute_update_value_advantage(states, qs)
 
         # Update the policy
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, adv)
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
 
 
 class HCAStateConditionalQAgent(ValueBaselineAgent, QTargetAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, episode_length: int):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, episode_length: int):
         super(ValueBaselineAgent, self).__init__(env_shape, alpha, gamma)
 
-        self.r_hat = torch.zeros(env_shape.shape, dtype=torch.float)
-        self.value = torch.zeros(env_shape.shape[0], dtype=torch.float)
+        self.r_hat = torch.zeros(env_shape, dtype=torch.float)
+        self.value = torch.zeros(env_shape[0], dtype=torch.float)
 
-        n_states = env_shape.shape[0]
+        n_states = env_shape[0]
 
         # state visitation
         self.s_counts = torch.zeros(n_states)
 
         # state action pair visitations
-        self.sa_counts = torch.zeros(env_shape.shape)
+        self.sa_counts = torch.zeros(env_shape)
 
         # action visitations for every state-state pair
-        self.ss_a_counts = torch.zeros((n_states, n_states, env_shape.shape[1]))
+        self.ss_a_counts = torch.zeros((n_states, n_states, env_shape[1]))
 
         # precompute gamma factors for a bit of efficiency
         self.gammas = torch.FloatTensor([self.gamma ** i for i in range(episode_length)])
@@ -871,27 +852,27 @@ class HCAStateConditionalQAgent(ValueBaselineAgent, QTargetAgent):
         adv = hca_cum_rewards
 
         # Update the policy
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, adv)
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
 
 
 # Similar to 1stepcreditagent, but multi-step. Credits rewards out to the max time horizon
 class MultiStepCreditAgent(ReinforceAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array,
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array,
                  time_horizon: int, credit_type: str = "baseline"):
         super().__init__(env_shape, alpha, gamma)
 
         # Override for credit with value pre-subtraction
         possible_rs = [-1, 0, 1]
-        n_states = env_shape.shape[0]
+        n_states = env_shape[0]
         self.time_horizon = time_horizon
         self.value_updates = None
         self.s_counts = torch.zeros(n_states)
-        self.sa_counts = torch.zeros(env_shape.shape)
+        self.sa_counts = torch.zeros(env_shape)
         # Index from possible reward values to state-action conditioned probabilities
         self.s_r_counts = torch.zeros(n_states, time_horizon, len(possible_rs))
-        self.sa_r_counts = torch.zeros(env_shape.shape + (time_horizon, len(possible_rs)))
+        self.sa_r_counts = torch.zeros(env_shape + (time_horizon, len(possible_rs)))
         # Mapping from reward values to indices in the count tensors
         self.r_index = dict()
         c = 0
@@ -1000,7 +981,7 @@ class MultiStepCreditAgent(ReinforceAgent):
         credited_rewards = torch.Tensor(self.accumulate_credited_rewards(states, actions, rewards, dones))
 
         # Finally, compute eligibility
-        loss, cats, mean_var = self.compute_update_eligibility(states, actions, credited_rewards)
+        loss, cats, mean_var = self.make_pg_step(states, actions, credited_rewards)
 
         # Apply value updates computed in update_credit
         self.value_multistep += self.value_updates.detach() * (self.alpha / (states.size(0)*self.time_horizon))
