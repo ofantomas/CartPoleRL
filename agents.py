@@ -1,22 +1,22 @@
-# Agent definitions for tabular CCA
 import math
-import random
-
 import numpy as np
 import torch
 
-# Random agent, for comparison
+
 class RandomAgent:
     def __init__(self, n_actions):
         self.n_actions = n_actions
+
     def select_action(self, state, inference):
         return np.random.randint(0, self.n_actions)
+
     def update(self, states, actions, rewards, dones):
         pass
 
+
 # Basic reinforce
 class ReinforceAgent:
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array = []):
+    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array = None):
         self.alpha = alpha
         self.gamma = gamma
         self.env_shape = env_shape.shape
@@ -26,7 +26,7 @@ class ReinforceAgent:
 
     def select_action(self, state, inference):
         probs = torch.softmax(self.pi[state], 0)
-        if inference: # Take maxprob
+        if inference:  # Take maxprob
             act = torch.as_tensor(np.random.choice(np.where(probs == probs.max())[0]))
         else:
             cat = torch.distributions.Categorical(probs=probs)
@@ -37,10 +37,10 @@ class ReinforceAgent:
     # Accumulate rewards across time
     def accumulate_rewards(self, rewards, dones):
         acc_rewards = np.zeros_like(rewards)
-        for ind in range(rewards.size-1,-1,-1):
+        for ind in range(rewards.size-1, -1, -1):
             curr_r = rewards[ind]
             if ind+1 < rewards.size:
-                future_r = acc_rewards[ind+1] * (1 - dones[ind]) # dones mask out future episodes
+                future_r = acc_rewards[ind+1] * (1 - dones[ind])  # dones mask out future episodes
             else:
                 future_r = 0
             acc_rewards[ind] = curr_r + self.gamma * future_r
@@ -85,7 +85,7 @@ class ReinforceAgent:
         # TODO consider doing this manually?
         self.pi_opt.zero_grad()
         loss.mean().backward()
-        self.pi_opt.step() # SGD step
+        self.pi_opt.step()  # SGD step
 
         return loss, cats, mean_var
 
@@ -112,13 +112,21 @@ class ValueBaselineAgent(ReinforceAgent):
 
         self.value = torch.zeros(env_shape.shape[0], dtype=torch.float)
 
+    def update_values(self, states, cum_rewards):
+        vals = torch.index_select(self.value, 0, states)
+        val_loss = cum_rewards - vals
+
+        for s in range(val_loss.size(0)):
+            self.value[states[s]] += val_loss[s] * (self.alpha / val_loss.size(0))
+
+        return val_loss
+
     # Compute value-baseline advantage values, and update the value function
     def compute_update_value_advantage(self, states, cum_rewards):
         # Subtract value baseline
         vals = torch.index_select(self.value, 0, states)
         val_loss = cum_rewards - vals
-        adv = val_loss.detach()
-        adv = cum_rewards - vals
+        adv = val_loss
 
         # Compute manual value loss
         for s in range(val_loss.size(0)):
@@ -141,6 +149,7 @@ class ValueBaselineAgent(ReinforceAgent):
         loss, cats, mean_var = self.compute_update_eligibility(states, actions, adv)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
+
 
 # Similar to ValueBaselineAgent, but with a multiplier on the value baseline (so it can be made bigger or added instead)
 class ValueModAgent(ValueBaselineAgent):
@@ -175,6 +184,11 @@ class CreditBaselineAgent(ValueBaselineAgent):
         self.n_states = env_shape.shape[0]
         self.possible_rs = possible_rs
 
+        self.s_counts = None
+        self.sa_counts = None
+        self.s_r_counts = None
+        self.sa_r_counts = None
+        self.r_index = None
         self.reset_r_counts()
 
     # Reset the credit counts to be more on-policy
@@ -250,7 +264,7 @@ class CreditBaselineAgent(ValueBaselineAgent):
         prs = self.get_prs(states, cum_rewards)
         prsa = self.get_prsa(states, actions, cum_rewards)
 
-        credit_ratio = prs / (mix_ratio * prsa + (1 - mix_ratio)*prs) # Denominator mixture
+        credit_ratio = prs / (mix_ratio * prsa + (1 - mix_ratio)*prs)  # Denominator mixture
 
         return credit_ratio
 
@@ -287,7 +301,7 @@ class CreditBaselineAgent(ValueBaselineAgent):
         prs = self.get_prs(states, cum_rewards)
         prsa = self.get_prsa(states, actions, cum_rewards)
 
-        credit_ratio = prs / (mix_ratio * prsa + (1 - mix_ratio)*prs) # Denominator mixture
+        credit_ratio = prs / (mix_ratio * prsa + (1 - mix_ratio)*prs)  # Denominator mixture
 
         return credit_ratio
 
@@ -429,7 +443,7 @@ class CreditBaselineMixtureCounterfactualAgent(CreditBaselineAgent):
         # Now update the combined objective
         self.pi_opt.zero_grad()
         (loss + alt_loss).mean().backward()
-        self.pi_opt.step() # SGD step
+        self.pi_opt.step()  # SGD step
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
@@ -469,7 +483,7 @@ class CreditBaselineCounterfactualAgent(CreditBaselineAgent):
         # Now update the combined objective
         self.pi_opt.zero_grad()
         (loss + alt_loss).mean().backward()
-        self.pi_opt.step() # SGD step
+        self.pi_opt.step()  # SGD step
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
@@ -501,7 +515,6 @@ class MICAMixtureCounterfactualAgent(CreditBaselineAgent):
         # If we have not seen this action before, we assume P(r|s,a)=P(r|s)
         alt_credit_ratio = self.compute_credit_mixture(states, alt_actions, cum_rewards, self.mix_ratio)
 
-        #print(credit_ratio, alt_credit_ratio)
         advantage = cum_rewards * (1/credit_ratio - 1)
 
         alt_advantage = cum_rewards * (1/alt_credit_ratio - 1)
@@ -513,7 +526,7 @@ class MICAMixtureCounterfactualAgent(CreditBaselineAgent):
         # Now update the combined objective
         self.pi_opt.zero_grad()
         (loss + alt_loss).mean().backward()
-        self.pi_opt.step() # SGD step
+        self.pi_opt.step()  # SGD step
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
@@ -536,7 +549,6 @@ class MICAMixtureAgent(CreditBaselineAgent):
         # Update credit counts and compute credit ratio
         credit_ratio = self.compute_update_credit_mixture(states, actions, cum_rewards, self.mix_ratio)
 
-        #print(credit_ratio, alt_credit_ratio)
         advantage = cum_rewards * (1/credit_ratio - 1)
 
         # Next, compute eligibility for each set of actions
@@ -564,7 +576,7 @@ class MICACounterfactualAgent(CreditBaselineAgent):
         alt_actions = self.select_action(states, False)
 
         # Update credit counts and compute credit ratio
-        credit_ratio = self.compute_update_credit(states, actions, cum_rewards)
+        credit_ratio = self.compute_update_credit(states, actions, cum_rewards)  # p(r|s,a)/p(r|s)
 
         # If we have not seen this action before, we assume P(r|s,a)=P(r|s)
         alt_credit_ratio = self.compute_credit(states, alt_actions, cum_rewards)
@@ -580,7 +592,7 @@ class MICACounterfactualAgent(CreditBaselineAgent):
         # Now update the combined objective
         self.pi_opt.zero_grad()
         (loss + alt_loss).mean().backward()
-        self.pi_opt.step() # SGD step
+        self.pi_opt.step()  # SGD step
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
@@ -589,12 +601,12 @@ class MICACounterfactualAgent(CreditBaselineAgent):
 # TODO refactor to unify with the other 1-step credit alg, since they are very similar now.
 # TODO Refactor WIP, delete this when done
 class OneStepCreditWithValueAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, credit_type: str = "mica"):
+    def __init__(self, env_shape: np.array, alpha: float, gamma: float,
+                 possible_rs: np.array, credit_type: str = "mica"):
         super().__init__(env_shape, alpha, gamma, possible_rs)
 
         self.n_state_actions = env_shape.shape
         self.n_states = env_shape.shape[0]
-        #self.possible_rs = possible_rs
         self.possible_rs = [-1, 0, 1]
         self.credit_type = credit_type
 
@@ -613,8 +625,6 @@ class OneStepCreditWithValueAgent(CreditBaselineAgent):
 
         # Subtract value function baseline
         advantage, val_loss = self.compute_update_value_advantage(states, cum_rewards)
-        # Use sign of advantage for credit bins
-        adv_for_credit = advantage.sign()
 
         # TODO hack
         advantage = cum_rewards
@@ -625,27 +635,11 @@ class OneStepCreditWithValueAgent(CreditBaselineAgent):
         # Weight the rewards post-baseline subtraction
         if self.credit_type == "mica":
             advantage = advantage * (1 / credit_ratio)
-            #advantage = (advantage * (1 / credit_ratio))*(1 - credit_ratio)
         else:
             advantage = advantage * (1 - credit_ratio)
-            #print(credit_ratio.mean())
-            #advantage = cum_rewards * (1 - credit_ratio)
-            #print(actions, adv_for_credit, credit_ratio)
-            # Some messing with odd formulations that use credit as a standard deviation normalization term:
-            #print(((advantage*credit_ratio)).mean())
-            #print((cum_rewards / ((advantage*credit_ratio))).mean())
-            #print((cum_rewards / ((advantage * credit_ratio))).var())
-            #advantage = cum_rewards / ((advantage*credit_ratio)+0.0001)
 
-        # Next, compute elegibility
+        # Next, compute eligibility
         loss, cats, mean_var = self.compute_update_eligibility(states, actions, advantage)
-
-        # Wipe stale state-action-reward counts
-        #self.reset_r_counts()
-
-        #print(self.value[0])
-        #print(self.pi)
-
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
 
@@ -669,7 +663,6 @@ class RandomMultWithValueAgent(ValueBaselineAgent):
 
         # Fake credit values, randomly upweight rewards
         credit_weighted_rewards = cum_rewards * (1 + np.random.random(cum_rewards.size())*1.5)
-        #credit_weighted_rewards = cum_rewards * 1.75
 
         # Subtract value function baseline
         advantage, val_loss = self.compute_update_value_advantage(states, credit_weighted_rewards)
@@ -745,7 +738,6 @@ class QAdvantageAgent(ValueBaselineAgent, QTargetAgent):
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
 
-        return loss.mean().item(), loss.var().item(), cats.entropy().mean().item()
 
 class HCAStateConditionalQAgent(ValueBaselineAgent, QTargetAgent):
     def __init__(self, env_shape: np.array, alpha: float, gamma: float, episode_length: int):
@@ -781,19 +773,13 @@ class HCAStateConditionalQAgent(ValueBaselineAgent, QTargetAgent):
                 # print(f"t: {t}, future_t: {future_t}")
                 future_t += 1
 
-
     def get_hca_ratios(self, a, s, s_futures):
         # this is h(a|x, y) (eqn 2 from the HCA paper)
         actions_from_states = self.ss_a_counts[s, s_futures]
-        #print(s, s_futures, actions_from_states)
-        #print(s, s_futures, actions_from_states)
-        h = actions_from_states[:,a] / torch.sum(actions_from_states, dim=1)
+        h = actions_from_states[:, a] / torch.sum(actions_from_states, dim=1)
 
         # policy
         pi = torch.softmax(self.pi[s], 0)[a]
-
-        #print(f"ratios: {h / pi}, h: {h}, pi: {pi}")
-
         return h / pi
 
     # TODO make sure this doesn't accumulate the single-step rewards so we can do counterfactual reward assignment
@@ -801,38 +787,27 @@ class HCAStateConditionalQAgent(ValueBaselineAgent, QTargetAgent):
         acc_rewards = np.zeros_like(rewards)
 
         curr_episode_length = 0
-        for idx in range(len(rewards)-1,-1,-1):
+        for idx in range(len(rewards)-1, -1, -1):
             # end of episode
-            if (dones[idx]):
+            if dones[idx]:
                 curr_episode_length = 0
 
             curr_episode_length += 1
 
-            #if curr_episode_length == 1:
-            #    acc_rewards[idx] = rewards[idx]
-            #else:
-            #acc_rewards[idx] = rewards[idx]
-
             future_rs = rewards[idx: idx + curr_episode_length]
             discount_factors = self.gammas[0: curr_episode_length]
-            #print(states, next_states)
-            #print(idx+curr_episode_length)
+
             hca_ratios = self.get_hca_ratios(
                 actions[idx], states[idx], next_states[idx: idx + curr_episode_length]
             )
             discounted_future_rs = future_rs * discount_factors * hca_ratios
             acc_rewards[idx] += torch.sum(discounted_future_rs)
-            #print("weighted unrolled rewards:", idx, hca_ratios, discounted_future_rs)
-
-        #print(acc_rewards)
         return acc_rewards
-
 
     def update(self, states, actions, rewards, next_states, dones):
         states = torch.LongTensor(states)
         actions = torch.LongTensor(actions)
         rewards_torch = torch.FloatTensor(rewards)
-        rewards_np = np.asarray(rewards)
         dones = np.asarray(dones)
 
         # Train hindsight distribution
@@ -840,9 +815,6 @@ class HCAStateConditionalQAgent(ValueBaselineAgent, QTargetAgent):
 
         # First compute cumulative rewards
         hca_cum_rewards = torch.Tensor(self.hca_accumulate_rewards(states, actions, rewards_torch, next_states, dones))
-        normal_cum_rewards = torch.Tensor(self.accumulate_rewards(rewards_np, dones))
-
-        # print(f"rewards: {rewards}, cum_rewards: {cum_rewards}")
 
         # Update r_hat
         rs = torch.index_select(self.r_hat, 0, states)
@@ -851,37 +823,27 @@ class HCAStateConditionalQAgent(ValueBaselineAgent, QTargetAgent):
         for s in range(rhat_loss.size(0)):
             self.r_hat[states[s], actions[s]] += rhat_loss[s] * (self.alpha / rhat_loss.size(0))    
 
-        # Update value baseline with normal discounted rewards
-        #adv, val_loss = self.compute_update_value_advantage(states, normal_cum_rewards)
-
         # TODO Now do counterfactual policy updates using hca_cum_rewards and r_hat
 
-        # Calculate the advantage
-        # adv above is actually NormalR - V
-        # qs is Q
-        # so we need to take away NormalR again to make this Q - V
-        #adv = qs + adv - normal_cum_rewards # Compute Q + R - V - R = Q - V
-        #adv = hca_cum_rewards + adv - normal_cum_rewards
-        # This is for HCA without value bootstrapping or counterfactual action training
         adv = hca_cum_rewards
 
         # Update the policy
         loss, cats, mean_var = self.compute_update_eligibility(states, actions, adv)
-
-        #print(self.pi)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
 
 
 # Similar to 1stepcreditagent, but multi-step. Credits rewards out to the max time horizon
 class MultiStepCreditAgent(ReinforceAgent):
-    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array, time_horizon: int, credit_type: str = "baseline"):
+    def __init__(self, env_shape: np.array, alpha: float, gamma: float, possible_rs: np.array,
+                 time_horizon: int, credit_type: str = "baseline"):
         super().__init__(env_shape, alpha, gamma)
 
         # Override for credit with value pre-subtraction
         possible_rs = [-1, 0, 1]
         n_states = env_shape.shape[0]
         self.time_horizon = time_horizon
+        self.value_updates = None
         self.s_counts = torch.zeros(n_states)
         self.sa_counts = torch.zeros(env_shape.shape)
         # Index from possible reward values to state-action conditioned probabilities
@@ -921,7 +883,6 @@ class MultiStepCreditAgent(ReinforceAgent):
 
         prs = s_r_count / s_count  # Same for s_count >0
 
-        #print(prs, prsa)
         credit_ratio = (prs + 0.000001) / (prsa + 0.000001)
 
         return credit_ratio
@@ -936,15 +897,13 @@ class MultiStepCreditAgent(ReinforceAgent):
             curr_action = actions[from_ind]
             curr_horizon = min(from_ind+self.time_horizon, rewards.size)
 
-            for to_ind in range(curr_horizon-1,from_ind-1,-1):
+            for to_ind in range(curr_horizon-1, from_ind-1, -1):
                 curr_r = rewards[to_ind]
                 curr_value = self.value_multistep[curr_state, to_ind - from_ind]
                 curr_adv = (curr_r - curr_value).detach()
                 curr_credit = self.compute_credit(curr_state, curr_action, curr_adv.sign().item(), to_ind - from_ind)
 
-                #print('state:', curr_state, 'action:', curr_action, 'horizon:', to_ind - from_ind, 'reward:', curr_r, 'credit:', 1-curr_credit)
-                #print('state:', curr_state, 'action:', curr_action, 'horizon:', to_ind - from_ind, 'reward:', curr_r, 'credit:', 1/curr_credit)
-                curr_sum *= self.gamma * (1 - dones[to_ind]) # Mask out future episodes
+                curr_sum *= self.gamma * (1 - dones[to_ind])  # Mask out future episodes
                 # Subtract value baseline
 
                 # variant crediting schemes here
@@ -982,9 +941,6 @@ class MultiStepCreditAgent(ReinforceAgent):
                 future_r_ind = self.r_index[adv_sign.item()]
                 self.s_r_counts[states[t], to_ind-t, future_r_ind] += 1
                 self.sa_r_counts[states[t], actions[t], to_ind-t, future_r_ind] += 1
-                #print(states[t], actions[t], to_ind-t, future_r_ind)
-                # Let's also update this value estimate too
-                #self.value_multistep[states[t]] += advantage * self.alpha
                 self.value_updates[states[t]] += advantage
 
     # Given a trajectory for one episode, update the policy
@@ -999,11 +955,6 @@ class MultiStepCreditAgent(ReinforceAgent):
 
         # Next, credit and accumulate rewards
         credited_rewards = torch.Tensor(self.accumulate_credited_rewards(states, actions, rewards, dones))
-
-        #print(states)
-        #print(actions)
-        #print(rewards)
-        #print(credited_rewards)
 
         # Finally, compute eligibility
         loss, cats, mean_var = self.compute_update_eligibility(states, actions, credited_rewards)
