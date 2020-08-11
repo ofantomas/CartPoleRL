@@ -30,10 +30,10 @@ ENV_CONSTRUCTORS = {
 
 
 AGENT_CONSTRUCTORS = {
-    "reinforce": lambda env_shape, alpha, gamma, possible_r, epi_length:
+    "reinforce": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
         ReinforceAgent(env_shape, alpha, gamma),
-    "value_baseline": lambda env_shape, alpha, gamma, possible_r, epi_length:
-        ValueBaselineAgent(env_shape, alpha, gamma),
+    "value_baseline": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
+        ValueBaselineAgent(env_shape, alpha, beta, gamma),
     # "value_baseline_+1": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     ValueModAgent(env_shape, alpha, gamma, value_mult=-1),
     # "value_baseline_+2": lambda env_shape, alpha, gamma, possible_r, epi_length:
@@ -52,7 +52,7 @@ AGENT_CONSTRUCTORS = {
     #     QTargetAgent(env_shape, alpha, gamma),
     # "q_value_advantage": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     QAdvantageAgent(env_shape, alpha, gamma),
-    "credit_baseline": lambda env_shape, alpha, gamma, possible_r, epi_length:
+    "credit_baseline": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
         CreditBaselineAgent(env_shape, alpha, gamma, possible_r),
     # "credit_baseline_cf": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     CreditBaselineCounterfactualAgent(env_shape, alpha, gamma, possible_r),
@@ -86,7 +86,7 @@ AGENT_CONSTRUCTORS = {
     #     MultiStepCreditAgent(env_shape, alpha, gamma, possible_r, epi_length, credit_type="baseline"),
     # "hca_q_states": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     HCAStateConditionalQAgent(env_shape, alpha, gamma, epi_length),
-    "random": lambda env_shape, alpha, gamma, possible_r, epi_length:
+    "random": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
         RandomAgent(env_shape)
 }
 
@@ -103,7 +103,7 @@ def cli():
 @click.option("--epi_length", type=int, required=True)
 @click.option("--eps_per_train", type=int, default=1)
 @click.option("--alpha", type=float, default=0.1)
-@click.option("--beta", type=float, default=0.1)
+@click.option("--beta", type=float, default=None)
 @click.option("--gamma", type=float, default=0.99)
 @click.option("--run_n_times", type=int, default=1)
 @click.option("--log_freq", type=int, default=1)
@@ -151,7 +151,7 @@ def run(
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")
         else:
-            agent = AGENT_CONSTRUCTORS[model_type](env_shape, alpha, gamma, env.possible_r_values, epi_length)
+            agent = AGENT_CONSTRUCTORS[model_type](env_shape, alpha, beta, gamma, env.possible_r_values, epi_length)
 
         train_rs, val_rs, visited, losses, loss_vars = train(
             agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, wandb_handle=wandb_handle,
