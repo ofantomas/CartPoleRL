@@ -77,6 +77,7 @@ def cli():
 @click.option("--epi_length", type=int, required=True)
 @click.option("--eps_per_train", type=int, default=1)
 @click.option("--alpha", type=float, default=0.1)
+@click.option("--beta", type=float, default=0.1)
 @click.option("--gamma", type=float, default=0.99)
 @click.option("--run_n_times", type=int, default=1)
 @click.option("--log_freq", type=int, default=1)
@@ -88,6 +89,7 @@ def run(
     epi_length,
     eps_per_train,
     alpha,
+    beta,
     gamma,
     run_n_times,
     log_freq,
@@ -105,6 +107,7 @@ def run(
             setattr(wandb.config, 'episodes', episodes)
             setattr(wandb.config, 'epi_length', epi_length)
             setattr(wandb.config, 'alpha', alpha)
+            setattr(wandb.config, 'beta', beta)
             setattr(wandb.config, 'gamma', gamma)
             setattr(wandb.config, 'eps_per_train', eps_per_train)
         else:
@@ -153,7 +156,7 @@ def run(
         if model_type == "reinforce":
             agent = ReinforceAgent(env_shape, alpha, gamma)
         elif model_type == "value_baseline":
-                agent = ValueBaselineAgent(env_shape, alpha, gamma)
+                agent = ValueBaselineAgent(env_shape, alpha, beta, gamma)
         # Value baseline ablations, multiply the value baseline by some amount. These should be bad.
         elif model_type == "value_baseline_+1":
                 agent = ValueModAgent(env_shape, alpha, gamma, value_mult=-1)
