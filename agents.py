@@ -86,10 +86,11 @@ class ReinforceAgent:
 
 # Extension of reinforce to include a value function baseline
 class ValueBaselineAgent(ReinforceAgent):
-    def __init__(self, env_shape: tuple, alpha: float, gamma: float):
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float):
         super().__init__(env_shape, alpha, gamma)
         self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
-        self.value_opt = torch.optim.SGD(params=[self.value], lr=alpha)
+        self.beta = beta
+        self.value_opt = torch.optim.SGD(params=[self.value], lr=self.beta)
 
     def update_values(self, states, cum_rewards):
         vals = self.value[states]
