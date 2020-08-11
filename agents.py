@@ -107,26 +107,24 @@ class ReinforceAgent:
 
 # Extension of reinforce to include a value function baseline
 class ValueBaselineAgent(ReinforceAgent):
-    def __init__(self, env_shape: np.array, alpha: float, beta: float, gamma: float):
+    def __init__(self, env_shape: np.array, alpha: float, gamma: float):
         super().__init__(env_shape, alpha, gamma)
-        self.beta = beta
 
-        self.value = torch.zeros(env_shape.shape[0], dtype=torch.float, requires_grad=True)
-
-        self.value_opt = torch.optim.SGD(params=[self.value], lr=self.beta)
+        self.value = torch.zeros(env_shape.shape[0], dtype=torch.float)
 
     # Compute value-baseline advantage values, and update the value function
     def compute_update_value_advantage(self, states, cum_rewards):
         # Subtract value baseline
         vals = torch.index_select(self.value, 0, states)
-        val_losses = (cum_rewards - vals) ** 2 / 2
-        adv = cum_rewards - vals.detach()
+        val_loss = cum_rewards - vals
+        adv = val_loss.detach()
+        adv = cum_rewards - vals
 
-        self.value_opt.zero_grad()
-        val_losses.mean().backward()
-        self.value_opt.step()
+        # Compute manual value loss
+        for s in range(val_loss.size(0)):
+            self.value[states[s]] += val_loss[s] * (self.alpha / val_loss.size(0))
 
-        return adv, val_losses
+        return adv, val_loss
 
     def update(self, states, actions, rewards, next_states, dones):
         states = torch.LongTensor(states)
@@ -137,7 +135,7 @@ class ValueBaselineAgent(ReinforceAgent):
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
         # Subtract value baseline
-        adv, val_losses = self.compute_update_value_advantage(states, cum_rewards)
+        adv, val_loss = self.compute_update_value_advantage(states, cum_rewards)
 
         # Update the policy
         loss, cats, mean_var = self.compute_update_eligibility(states, actions, adv)
