@@ -129,7 +129,7 @@ class ValueBaselineAgent(ReinforceAgent):
 # Parent credit agent class, contains credit-baseline algorithm plus a lot of functions for other extensions
 # Extensions should inherit this class and overload update+add functions as needed
 # PSA: Avoid additional layers of inheritance!
-class CreditBaselineAgent(ValueBaselineAgent):
+class CreditBaselineAgent(ReinforceAgent):
     def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array):
         super().__init__(env_shape, alpha, gamma)
 
