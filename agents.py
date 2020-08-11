@@ -93,7 +93,7 @@ class ValueBaselineAgent(ReinforceAgent):
 
     def update_values(self, states, cum_rewards):
         vals = self.value[states]
-        val_loss = (vals - cum_rewards)**2
+        val_loss = (vals - cum_rewards) ** 2 / 2
 
         self.value_opt.zero_grad()
         val_loss.mean().backward()
