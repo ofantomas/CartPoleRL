@@ -90,8 +90,10 @@ class AbstractGridEnv(AbstractTabEnv):
 class FrozenLakeEnv(AbstractGridEnv):
     def __init__(self):
         super().__init__(16, 4, 0)
-        # distribution P(a|s, Z=1) of size n_actions x n_states
-        self.pt_a_sz = None
+        # distribution P(a|s, Z=1) of size episode_len x n_actions x n_states
+        self.pt_a_sz_success = None
+        # distribution P(a|s, Z=0) of size episode_len x n_actions x n_states
+        self.pt_a_sz_fail = None
 
     def init_maps(self):
         self.state_map = np.array(
@@ -155,18 +157,32 @@ class FrozenLakeEnv(AbstractGridEnv):
             p_s_s_power = p_s_s@p_s_s_power
 
         # compute hindsight distributions, nan where they are not defined
-        pt_a_sz = np.full((episode_length, self.n_actions, self.n_states), np.nan)
+        pt_a_sz_success = np.full((episode_length, self.n_actions, self.n_states), np.nan)
+        pt_a_sz_fail = np.full((episode_length, self.n_actions, self.n_states), np.nan)
         for t in range(episode_length):
             nominator = pt_z_sa[t].T * pi_a_s
             denominator = pt_z_s[t]
-            np.divide(nominator, denominator, out=pt_a_sz[t], where=(denominator != 0))
+            np.divide(nominator, denominator, out=pt_a_sz_success[t], where=(denominator != 0))
 
-        self.pt_a_sz = pt_a_sz
+            nominator = (1 - pt_z_sa[t].T) * pi_a_s
+            denominator = 1 - pt_z_s[t]
+            np.divide(nominator, denominator, out=pt_a_sz_fail[t], where=(denominator != 0))
 
-    def get_hindsight_probability(self, state, action, t):
-        if self.pt_a_sz is None:
+        self.pt_a_sz_success = pt_a_sz_success
+        self.pt_a_sz_fail = pt_a_sz_fail
+
+    def get_hindsight_probability(self, states, actions, ts, successes):
+        if self.pt_a_sz_success is None:
             raise Exception(f"Initialize with `initialize_hindsight` method first!")
-        return self.pt_a_sz[t, action, state]
+
+        states, actions, ts = (np.array(l, dtype='int') for l in (states, actions, ts))
+        successes = np.array(successes, dtype='bool')
+
+        hindsight = np.empty_like(states, dtype='float')
+        for mask, pt_a_sz in zip((successes, ~successes), (self.pt_a_sz_success, self.pt_a_sz_fail)):
+            hindsight[mask] = pt_a_sz[ts[mask], actions[mask], states[mask]]
+
+        return hindsight
 
 
 class TabEnv:
