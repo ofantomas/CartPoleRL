@@ -319,6 +319,26 @@ class PerfectCreditBaselineAgent(ReinforceAgent):
 
         return credit_ratio
 
+    def compute_credit_analytically(self, states, actions, rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        self.env.compute_hinsight_probabilities_analytically(pi_a_s)
+
+        z = np.empty_like(rewards, dtype='int32')
+        start_idx = 0
+        for idx in dones.nonzero()[0]:
+            end_idx = idx + 1
+            z_i = int(np.sum(rewards[start_idx:end_idx]))
+            assert z_i in [0, 1]
+            z[start_idx:end_idx] = z_i
+            start_idx = end_idx
+
+        pt_z_s = self.env.pt_z_s[states]
+        pt_z_sa = self.env.pt_z_sa[states, actions]
+        credit_ratio = z * pt_z_s / pt_z_sa + (1 - z) * (1 - pt_z_s) / (1 - pt_z_sa)
+        return credit_ratio
+
     # Given a trajectory for one episode, update the policy
     def update(self, states, actions, rewards, next_states, dones):
         states = torch.LongTensor(states)

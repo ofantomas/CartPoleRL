@@ -184,6 +184,31 @@ class FrozenLakeEnv(AbstractGridEnv):
 
         return hindsight
 
+    def compute_hinsight_probabilities_analytically(self, pi_a_s):
+        A = np.zeros((self.n_states, self.n_states), dtype='float32')
+        b = np.zeros((self.n_states,), dtype='float32')
+        b[15] = 1
+        for s in range(self.n_states):
+            A[s, s] += 1
+            if s in self.done_states:
+                continue
+            for a in range(self.n_actions):
+                for a_delta, p_sprime_sa in zip((-1, 0, 1), (0.1, 0.8, 0.1)):
+                    morphed_a = (a + a_delta) % self.n_actions
+                    sprime = self.transitions[s, morphed_a]
+                    A[s, sprime] -= pi_a_s[a, s] * p_sprime_sa
+        self.pt_z_s = np.linalg.solve(A, b)
+
+        self.pt_z_sa = np.zeros((self.n_states, self.n_actions), dtype='float32')
+        for s in range(self.n_states):
+            if s in self.done_states:
+                continue
+            for a in range(self.n_actions):
+                for a_delta, p in zip((-1, 0, 1), (0.1, 0.8, 0.1)):
+                    morphed_a = (a + a_delta) % self.n_actions
+                    self.pt_z_sa[s, a] += p * self.pt_z_s[self.transitions[s, morphed_a]]
+        self.pt_z_sa[15, :] = 1
+
 
 class TabEnv:
     def __init__(self, n_states, n_actions, initial_pos):
