@@ -1,4 +1,5 @@
 import click
+import inspect
 from agents import ReinforceAgent, RandomAgent, \
     CreditBaselineAgent, ValueBaselineAgent, OneStepCreditWithValueAgent, QTargetAgent, QAdvantageAgent, \
     HCAStateConditionalQAgent, MultiStepCreditAgent, RandomMultWithValueAgent, CreditBaselineMixtureAgent, MICAAgent, \
@@ -29,11 +30,19 @@ ENV_CONSTRUCTORS = {
 }
 
 
+def ignore_extra_args(foo):
+    def indifferent_foo(**kwargs):
+        signature = inspect.signature(foo)
+        expected_keys = [p.name for p in signature.parameters.values()
+                         if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD]
+        filtered_kwargs = {k: kwargs[k] for k in kwargs if k in expected_keys}
+        return foo(**filtered_kwargs)
+    return indifferent_foo
+
+
 AGENT_CONSTRUCTORS = {
-    "reinforce": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
-        ReinforceAgent(env_shape, alpha, gamma),
-    "value_baseline": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
-        ValueBaselineAgent(env_shape, alpha, beta, gamma),
+    "reinforce": ignore_extra_args(ReinforceAgent),
+    "value_baseline": ignore_extra_args(ValueBaselineAgent),
     # "value_baseline_+1": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     ValueModAgent(env_shape, alpha, gamma, value_mult=-1),
     # "value_baseline_+2": lambda env_shape, alpha, gamma, possible_r, epi_length:
@@ -52,8 +61,7 @@ AGENT_CONSTRUCTORS = {
     #     QTargetAgent(env_shape, alpha, gamma),
     # "q_value_advantage": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     QAdvantageAgent(env_shape, alpha, gamma),
-    "credit_baseline": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
-        CreditBaselineAgent(env_shape, alpha, gamma, possible_r),
+    "credit_baseline": ignore_extra_args(CreditBaselineAgent),
     # "credit_baseline_cf": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     CreditBaselineCounterfactualAgent(env_shape, alpha, gamma, possible_r),
     # "credit_baseline_mixture_50": lambda env_shape, alpha, gamma, possible_r, epi_length:
@@ -86,8 +94,7 @@ AGENT_CONSTRUCTORS = {
     #     MultiStepCreditAgent(env_shape, alpha, gamma, possible_r, epi_length, credit_type="baseline"),
     # "hca_q_states": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     HCAStateConditionalQAgent(env_shape, alpha, gamma, epi_length),
-    "random": lambda env_shape, alpha, beta, gamma, possible_r, epi_length:
-        RandomAgent(env_shape)
+    "random": ignore_extra_args(RandomAgent)
 }
 
 
@@ -151,7 +158,13 @@ def run(
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")
         else:
-            agent = AGENT_CONSTRUCTORS[model_type](env_shape, alpha, beta, gamma, env.possible_r_values, epi_length)
+            agent = AGENT_CONSTRUCTORS[model_type](env=env,
+                                                   env_shape=env_shape,
+                                                   alpha=alpha,
+                                                   beta=beta,
+                                                   gamma=gamma,
+                                                   possible_rs=env.possible_r_values,
+                                                   episode_length=epi_length)
 
         train_rs, val_rs, visited, losses, loss_vars = train(
             agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, wandb_handle=wandb_handle,
