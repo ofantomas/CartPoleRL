@@ -1,7 +1,7 @@
 import click
 import inspect
-from agents import ReinforceAgent, RandomAgent, \
-    CreditBaselineAgent, ValueBaselineAgent, OneStepCreditWithValueAgent, QTargetAgent, QAdvantageAgent, \
+from agents import ReinforceAgent, RandomAgent, CreditBaselineAgent, ValueBaselineAgent, PerfectCreditBaselineAgent,\
+    OneStepCreditWithValueAgent, QTargetAgent, QAdvantageAgent, \
     HCAStateConditionalQAgent, MultiStepCreditAgent, RandomMultWithValueAgent, CreditBaselineMixtureAgent, MICAAgent, \
     MICAValueAgent, ValueModAgent, MICAMixtureAgent, CreditBaselineMixtureCounterfactualAgent, \
     CreditBaselineCounterfactualAgent, MICACounterfactualAgent, MICAMixtureCounterfactualAgent, \
@@ -62,6 +62,7 @@ AGENT_CONSTRUCTORS = {
     # "q_value_advantage": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     QAdvantageAgent(env_shape, alpha, gamma),
     "credit_baseline": ignore_extra_args(CreditBaselineAgent),
+    "perfect_credit_baseline": ignore_extra_args(PerfectCreditBaselineAgent),
     # "credit_baseline_cf": lambda env_shape, alpha, gamma, possible_r, epi_length:
     #     CreditBaselineCounterfactualAgent(env_shape, alpha, gamma, possible_r),
     # "credit_baseline_mixture_50": lambda env_shape, alpha, gamma, possible_r, epi_length:

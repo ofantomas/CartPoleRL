@@ -282,6 +282,64 @@ class CreditBaselineAgent(ReinforceAgent):
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
+
+class PerfectCreditBaselineAgent(ReinforceAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, env, episode_length):
+        super().__init__(env_shape, alpha, gamma)
+
+        self.env = env
+        self.episode_length = episode_length
+        self.n_state_actions = env_shape
+        self.n_states = env_shape[0]
+        self.possible_rs = possible_rs
+
+
+    # Computes credit only
+    def compute_credit(self, states, actions, rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        self.env.initialize_hindsight(self.episode_length, pi_a_s)
+
+        # here we assume that data is sequential and begins with the start of the episode
+        extended_done_ids = np.flatnonzero([True] + dones.tolist())
+        ts = []
+        for i in range(len(extended_done_ids) - 1):
+            ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
+
+        # is part of rewarding trajectory
+        successes = np.empty_like(states, dtype='bool')
+        for i in range(len(extended_done_ids) - 1):
+            start = extended_done_ids[i]
+            end = extended_done_ids[i + 1]
+            successes[start:end] = (rewards[end - 1] == 1)
+
+        pt_a_sz = self.env.get_hindsight_probability(states=states, actions=actions, ts=ts, successes=successes)
+        credit_ratio = pi_a_s[actions, states] / pt_a_sz
+
+        return credit_ratio
+
+    # Given a trajectory for one episode, update the policy
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+        dones = np.asarray(dones)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Get credit ratios from environment, mark undefined
+        credit_ratio = self.compute_credit(states, actions, rewards, dones)
+        credit_ratio = torch.FloatTensor(credit_ratio)
+
+        advantage = cum_rewards * (1 - credit_ratio)
+
+        # Next, compute eligibility
+        loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
+
 # =======================================================================================================
 # =======================================================================================================
 
