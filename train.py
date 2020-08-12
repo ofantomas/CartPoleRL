@@ -4,7 +4,8 @@ import math
 import numpy as np
 from tqdm import tqdm
 
-def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, wandb_handle = None):
+
+def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, logger = None):
     states_visited = np.zeros(env.transitions.shape, int)
     episode_train_rewards = []
     episode_validation_rewards = []
@@ -67,7 +68,7 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, wand
             )
 
             # WandB logging
-            wandb_handle({'training_steps': i, 'episodes': i*eps_per_train, 'train_reward': total_r_train/eps_per_train, 'test_reward': total_r_inference, 'policy_gradient_mean': loss_mean, 'policy_gradient_var': loss_var, 'policy_entropy': entropy, 'timesteps': mean_t, 'mean_advantage': mean_advantage})
+            logger({'training_steps': i, 'episodes': i * eps_per_train, 'train_reward': total_r_train / eps_per_train, 'test_reward': total_r_inference, 'policy_gradient_mean': loss_mean, 'policy_gradient_var': loss_var, 'policy_entropy': entropy, 'timesteps': mean_t, 'mean_advantage': mean_advantage})
 
         # TODO support visualization logging
         # Log what we should log.

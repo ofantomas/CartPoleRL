@@ -1,13 +1,7 @@
 # Core setup and run for CCA tabular experiments
-
-import os
-import pathlib
-import time
-
 import click
-import matplotlib
+from git import Repo
 
-from display import plot_training_runs
 from agents import ReinforceAgent, RandomAgent, \
     CreditBaselineAgent, ValueBaselineAgent, OneStepCreditWithValueAgent, QTargetAgent, QAdvantageAgent, \
     HCAStateConditionalQAgent, MultiStepCreditAgent, RandomMultWithValueAgent, CreditBaselineMixtureAgent, MICAAgent, \
@@ -17,6 +11,16 @@ from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoO
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
     CounterexampleBandit2Env
 from train import train
+from logger import LoggingManager, WandbLogger, LocalLogger
+
+
+def get_current_sha():
+    repo = Repo('.')
+    # TODO maybe too harsh here, maybe need to add debugger check
+    if len(repo.index.diff(None)) > 0:
+        raise Exception("There are uncommited changes in repo!")
+    return repo.head.commit.hexsha
+
 
 MODEL_OPTIONS = {
     "reinforce",
@@ -81,6 +85,8 @@ def cli():
 @click.option("--run_n_times", type=int, default=1)
 @click.option("--log_freq", type=int, default=1)
 @click.option("--project", type=str, default=None)
+@click.option("--log_folder", type=str, default=None)
+@click.option("--exp_name", type=str, default='experiment')
 def run(
     model_type,
     env_type,
@@ -92,26 +98,26 @@ def run(
     run_n_times,
     log_freq,
     project,
+    log_folder,
+    exp_name,
 ):
     for run_n in range(run_n_times):
-
+        config = {
+            'model_type': model_type,
+            'env_type': env_type,
+            'episodes': episodes,
+            'epi_length': epi_length,
+            'alpha': alpha,
+            'gamma': gamma,
+            'eps_per_train': eps_per_train,
+            'git_sha': get_current_sha(),
+        }
+        logger_manager = LoggingManager()
         if project is not None:
-            import wandb
-            wandb.init(project=project, reinit=True)
-            wandb_handle = wandb.log
-
-            setattr(wandb.config, 'model_type', model_type)
-            setattr(wandb.config, 'env_type', env_type)
-            setattr(wandb.config, 'episodes', episodes)
-            setattr(wandb.config, 'epi_length', epi_length)
-            setattr(wandb.config, 'alpha', alpha)
-            setattr(wandb.config, 'gamma', gamma)
-            setattr(wandb.config, 'eps_per_train', eps_per_train)
-        else:
-            wandb_handle = print
-
-        # Will this help?
-        # matplotlib.use('Qt5Agg')
+            logger_manager.add_logger(WandbLogger(project, exp_name))
+        if log_folder is not None:
+            logger_manager.add_logger(LocalLogger(log_folder, exp_name))
+        logger_manager.log_config(config)
 
         # Create an env.
         if env_type == "test":
@@ -217,7 +223,7 @@ def run(
             exit()
 
         train_rs, val_rs, visited, losses, loss_vars = train(
-            agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, wandb_handle=wandb_handle,
+            agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, logger=logger_manager,
         )
 
 
