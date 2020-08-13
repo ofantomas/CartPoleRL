@@ -284,7 +284,8 @@ class CreditBaselineAgent(ReinforceAgent):
 
 
 class PerfectCreditBaselineAgent(ReinforceAgent):
-    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, env, episode_length):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, env, episode_length,
+                 flip_ratio=False):
         super().__init__(env_shape, alpha, gamma)
 
         self.env = env
@@ -292,7 +293,7 @@ class PerfectCreditBaselineAgent(ReinforceAgent):
         self.n_state_actions = env_shape
         self.n_states = env_shape[0]
         self.possible_rs = possible_rs
-
+        self.flip_ratio = flip_ratio
 
     # Computes credit only
     def compute_credit(self, states, actions, rewards, dones):
@@ -353,7 +354,10 @@ class PerfectCreditBaselineAgent(ReinforceAgent):
         credit_ratio = self.compute_credit(states, actions, rewards, dones)
         credit_ratio = torch.FloatTensor(credit_ratio)
 
-        advantage = cum_rewards * (1 - credit_ratio)
+        if self.flip_ratio:
+            advantage = cum_rewards * (1 / credit_ratio - 1.)
+        else:
+            advantage = cum_rewards * (1 - credit_ratio)
 
         # Next, compute eligibility
         loss, cats, mean_var = self.make_pg_step(states, actions, advantage)
