@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import numpy as np
 import torch
 
 try:
@@ -11,9 +12,15 @@ except ImportError:
 
 def detorchify(data_dict):
     res = dict()
+
+    mappers = {
+        np.int64: int,
+        torch.Tensor: lambda x: x.item(),
+    }
+
     for k, v in data_dict.items():
-        if isinstance(v, torch.Tensor):
-            v = v.item()
+        if type(v) in mappers:
+            v = mappers[type(v)](v)
         res[k] = v
     return res
 
