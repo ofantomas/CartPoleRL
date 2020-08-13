@@ -94,6 +94,8 @@ class FrozenLakeEnv(AbstractGridEnv):
         self.pt_a_sz_success = None
         # distribution P(a|s, Z=0) of size episode_len x n_actions x n_states
         self.pt_a_sz_fail = None
+        # distribution P(Z=1|s) of size episode_len x n_actions x n_states
+        self.pt_z_s = None
 
     def init_maps(self):
         self.state_map = np.array(
@@ -156,6 +158,8 @@ class FrozenLakeEnv(AbstractGridEnv):
             pt_z_s[t] = (pt_z_sa[t] * pi_a_s.T).sum(1)
             p_s_s_power = p_s_s@p_s_s_power
 
+        self.pt_z_s = pt_z_s
+
         # compute hindsight distributions, nan where they are not defined
         pt_a_sz_success = np.full((episode_length, self.n_actions, self.n_states), np.nan)
         pt_a_sz_fail = np.full((episode_length, self.n_actions, self.n_states), np.nan)
@@ -208,6 +212,15 @@ class FrozenLakeEnv(AbstractGridEnv):
                     morphed_a = (a + a_delta) % self.n_actions
                     self.pt_z_sa[s, a] += p * self.pt_z_s[self.transitions[s, morphed_a]]
         self.pt_z_sa[15, :] = 1
+
+    def get_value(self, states, ts):
+        if self.pt_z_s is None:
+            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+
+        states, ts = (np.array(l, dtype='int') for l in (states, ts))
+        values = self.pt_z_s[ts, states]
+
+        return values
 
 
 class TabEnv:
