@@ -15,6 +15,8 @@ def detorchify(data_dict):
 
     mappers = {
         np.int64: int,
+        np.float32: float,
+        np.float64: float,
         torch.Tensor: lambda x: x.item(),
     }
 
