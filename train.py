@@ -10,6 +10,7 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, wand
     episode_validation_rewards = []
     losses = []
     loss_vars = []
+    total_n_frames = 0
 
     for i in tqdm(range(math.ceil(n_eps / eps_per_train))):
         total_r_train = 0
@@ -31,6 +32,7 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, wand
                 states_visited[s] += 1
                 a = agent.select_action(s, inference=False).item()
                 ns, r, d = env.step(a)
+                total_n_frames += 1
                 # Set done if out of time
                 if not d and t == ep_length - 1:
                     d = True
@@ -62,7 +64,7 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, wand
             wandb_handle({'training_steps': i, 'episodes': i*eps_per_train, 'train_reward': total_r_train/eps_per_train,
                           'test_reward': total_r_inference, 'policy_gradient_mean': loss_mean,
                           'policy_gradient_var': loss_var, 'policy_entropy': entropy, 'timesteps': mean_t,
-                          'mean_advantage': mean_advantage})
+                          'mean_advantage': mean_advantage, 'total_n_frames': total_n_frames})
 
         # Aggregate.
         episode_train_rewards.append(total_r_train/eps_per_train)
