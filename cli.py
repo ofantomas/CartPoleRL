@@ -80,6 +80,7 @@ def cli():
 @click.option("--project", type=str, default=None)
 @click.option("--log_folder", type=str, default=None)
 @click.option("--exp_name", type=str, default='experiment')
+@click.option("--h_analytical", type=bool, default=False)
 def run(
     model_type,
     env_type,
@@ -94,6 +95,7 @@ def run(
     project,
     log_folder,
     exp_name,
+    h_analytical,
 ):
     for run_n in range(run_n_times):
         config = {
@@ -102,9 +104,11 @@ def run(
             'episodes': episodes,
             'epi_length': epi_length,
             'alpha': alpha,
+            'beta': beta,
             'gamma': gamma,
             'eps_per_train': eps_per_train,
             'git_sha': get_current_sha(),
+            'h_analytical': h_analytical,
         }
         logger_manager = LoggingManager()
         if project is not None:
@@ -129,7 +133,8 @@ def run(
                                                    beta=beta,
                                                    gamma=gamma,
                                                    possible_rs=env.possible_r_values,
-                                                   episode_length=epi_length)
+                                                   episode_length=epi_length,
+                                                   h_analytical=h_analytical)
 
         train_rs, val_rs, visited, losses, loss_vars = train(
             agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, logger=logger_manager,
