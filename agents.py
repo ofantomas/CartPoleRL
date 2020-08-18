@@ -328,7 +328,7 @@ class CreditBaselineAgent(ReinforceAgent):
 
 class PerfectCreditBaselineAgent(ReinforceAgent):
     def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, env, episode_length,
-                 flip_ratio=False):
+                 flip_ratio=False, h_analytical=False):
         super().__init__(env_shape, alpha, gamma)
 
         self.env = env
@@ -337,6 +337,7 @@ class PerfectCreditBaselineAgent(ReinforceAgent):
         self.n_states = env_shape[0]
         self.possible_rs = possible_rs
         self.flip_ratio = flip_ratio
+        self.is_h_analytical = h_analytical
 
     # Computes credit only
     def compute_credit(self, states, actions, rewards, dones):
@@ -394,7 +395,10 @@ class PerfectCreditBaselineAgent(ReinforceAgent):
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
         # Get credit ratios from environment, mark undefined
-        credit_ratio = self.compute_credit(states, actions, rewards, dones)
+        if self.is_h_analytical:
+            credit_ratio = self.compute_credit_analytically(states, actions, rewards, dones)
+        else:
+            credit_ratio = self.compute_credit(states, actions, rewards, dones)
         credit_ratio = torch.FloatTensor(credit_ratio)
 
         if self.flip_ratio:
