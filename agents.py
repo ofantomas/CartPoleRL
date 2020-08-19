@@ -148,7 +148,7 @@ class PerfectValueBaselineAgent(ReinforceAgent):
         for i in range(len(extended_done_ids) - 1):
             ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
 
-        vals = self.env.get_value(states=states, ts=ts)
+        vals = self.env.get_state_value(states=states, ts=ts)
         vals = torch.FloatTensor(vals)
         advantage = cum_rewards - vals
         return advantage
