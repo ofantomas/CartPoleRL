@@ -6,7 +6,8 @@ import click
 from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
-    CreditBaselineAgent, ValueBaselineAgent, PerfectCreditBaselineAgent, PerfectValueBaselineAgent
+    CreditBaselineAgent, ValueBaselineAgent, PerfectCreditBaselineAgent, PerfectValueBaselineAgent, \
+    OptimalStateBaselineAgent
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
     CounterexampleBandit2Env
@@ -57,6 +58,7 @@ AGENT_CONSTRUCTORS = {
     "credit_baseline": ignore_extra_args(CreditBaselineAgent),
     "perfect_credit_baseline": ignore_extra_args(PerfectCreditBaselineAgent),
     "perfect_value_baseline": ignore_extra_args(PerfectValueBaselineAgent),
+    "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
     "perfect_mica": partial(ignore_extra_args(PerfectCreditBaselineAgent), flip_ratio=True),
     "random": ignore_extra_args(RandomAgent)
 }
