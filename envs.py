@@ -98,6 +98,8 @@ class FrozenLakeEnv(AbstractGridEnv):
         self.pt_z_s = None
         # distribution P(Z=1|s, a) of size episode_len x n_actions x n_states x n_actions
         self.pt_z_sa = None
+        # state visitation distribution of size n_states
+        self.ds = None
 
     def init_maps(self):
         self.state_map = np.array(
@@ -147,6 +149,17 @@ class FrozenLakeEnv(AbstractGridEnv):
 
         # compute state to state probabilities
         p_s_s = (p_s_sa * pi_a_s.T).sum(2)
+
+        # compute state visitation distribution
+        ds_unnormalized = np.zeros(self.n_states)
+        p_s_current = np.zeros(self.n_states)
+        p_s_current[0] = 1.
+        for t in range(episode_length):
+            ds_unnormalized += p_s_current
+            p_s_current = p_s_s@p_s_current
+        ds_unnormalized[self.done_states] = 0.
+        self.ds = ds_unnormalized / ds_unnormalized.sum()
+
 
         # only (terminal) state giving reward
         success_state = np.flatnonzero(self.reward_map.flatten()).item()
