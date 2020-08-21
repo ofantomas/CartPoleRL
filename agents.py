@@ -199,6 +199,7 @@ class OptimalStateBaselineAgent(ReinforceAgent):
             l2_norms_squared[i] = (grad_log_prob[ep_states, ep_acts].sum(0) ** 2).sum(0).sum(0)
             returns[i] = sum(ep_rewards)
         self.optimal_baseline = (returns * l2_norms_squared).mean() / l2_norms_squared.mean()
+        self.delta_var = self.optimal_baseline ** 2 * l2_norms_squared.mean()
 
     # Compute value-baseline advantage values, and update the value function
     def compute_advantage(self, cum_rewards):
