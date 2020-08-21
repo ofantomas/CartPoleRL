@@ -1,4 +1,5 @@
 from itertools import groupby
+from variance_estimation import rollout
 import numpy as np
 import torch
 
@@ -176,23 +177,9 @@ class OptimalStateBaselineAgent(ReinforceAgent):
         super().__init__(env_shape, alpha, gamma)
         self.env = env
         self.episode_length = episode_length
+        self.optimal_baseline = None
 
-    # Compute value-baseline advantage values, and update the value function
-    def compute_advantage(self, states, actions, cum_rewards, dones):
-        # compute necessary distributions
-        pi_s_a = torch.softmax(self.pi, 1)
-        self.env.initialize_hindsight(self.episode_length, pi_a_s=pi_s_a.detach().numpy().T)
-
-        # here we assume that data is sequential and begins with the start of the episode
-        extended_done_ids = np.flatnonzero([True] + dones)
-        ts = []
-        for i in range(len(extended_done_ids) - 1):
-            ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
-
-        # get all state action values
-        vals = self.env.pt_z_sa
-        vals = torch.FloatTensor(vals)
-
+    def estimate_optimal_baseline(self, n_episodes=10000):
         # compute grad log pi
         ns = self.env.n_states
         na = self.env.n_actions
@@ -203,17 +190,19 @@ class OptimalStateBaselineAgent(ReinforceAgent):
                 grad_log_prob[i, j], = torch.autograd.grad(outputs=[log_prob[i, j]],
                                                            inputs=[self.pi],
                                                            retain_graph=True)
+        l2_norms = np.empty(n_episodes)
+        returns = np.empty(n_episodes)
+        for i in range(n_episodes):
+            ep_states, ep_acts, ep_rewards, ep_next_states, ep_dones = rollout(self.env,
+                                                                               self,
+                                                                               self.episode_length)
+            l2_norms[i] = (grad_log_prob[ep_states, ep_acts].sum(0) ** 2).sum(0).sum(0)
+            returns[i] = sum(ep_rewards)
+        self.optimal_baseline = (returns * l2_norms).mean() / l2_norms.mean()
 
-        # compute full optimal baseline
-        grad_log_prob = grad_log_prob[None] # add time dimension
-        numerator = ((vals[:, :, :, None, None] * grad_log_prob ** 2) * pi_s_a[None, :, :, None, None]).sum(
-            2).sum(2).sum(2)
-        denominator = ((grad_log_prob ** 2) * pi_s_a[None, :, :, None, None]).sum(2).sum(2).sum(2)
-        full_optimal_baseline = numerator / denominator
-
-        # take necessary indicies
-        baseline = full_optimal_baseline[ts, states].detach()
-        advantage = cum_rewards - baseline
+    # Compute value-baseline advantage values, and update the value function
+    def compute_advantage(self, cum_rewards):
+        advantage = cum_rewards - self.optimal_baseline
         return advantage
 
     def update(self, states, actions, rewards, next_states, dones):
@@ -225,7 +214,8 @@ class OptimalStateBaselineAgent(ReinforceAgent):
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
         # Subtract value baseline
-        adv = self.compute_advantage(states, actions, cum_rewards, dones)
+        self.estimate_optimal_baseline()
+        adv = self.compute_advantage(cum_rewards)
 
         # Update the policy
         loss, cats, mean_var = self.make_pg_step(states, actions, adv)
