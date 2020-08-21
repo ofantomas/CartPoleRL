@@ -190,15 +190,15 @@ class OptimalStateBaselineAgent(ReinforceAgent):
                 grad_log_prob[i, j], = torch.autograd.grad(outputs=[log_prob[i, j]],
                                                            inputs=[self.pi],
                                                            retain_graph=True)
-        l2_norms = np.empty(n_episodes)
+        l2_norms_squared = np.empty(n_episodes)
         returns = np.empty(n_episodes)
         for i in range(n_episodes):
             ep_states, ep_acts, ep_rewards, ep_next_states, ep_dones = rollout(self.env,
                                                                                self,
                                                                                self.episode_length)
-            l2_norms[i] = (grad_log_prob[ep_states, ep_acts].sum(0) ** 2).sum(0).sum(0)
+            l2_norms_squared[i] = (grad_log_prob[ep_states, ep_acts].sum(0) ** 2).sum(0).sum(0)
             returns[i] = sum(ep_rewards)
-        self.optimal_baseline = (returns * l2_norms).mean() / l2_norms.mean()
+        self.optimal_baseline = (returns * l2_norms_squared).mean() / l2_norms_squared.mean()
 
     # Compute value-baseline advantage values, and update the value function
     def compute_advantage(self, cum_rewards):
