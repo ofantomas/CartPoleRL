@@ -75,3 +75,22 @@ class WandbLogger:
 
     def log_metrics(self, metrics_dict):
         wandb.log(metrics_dict)
+
+
+class ConsoleLogger:
+    def __init__(self, metric_names=None, log_each_n=1):
+        self.metric_names = metric_names
+        self.log_each_n = log_each_n
+        self.counter = 0
+
+    def log_config(self, config_dict):
+        print(config_dict)
+
+    def log_metrics(self, metrics_dict):
+        self.counter = (self.counter + 1) % self.log_each_n
+        if self.counter != 0:
+            return
+        if self.metric_names is None:
+            print(metrics_dict)
+        else:
+            print({k: v for k, v in metrics_dict.items() if k in self.metric_names})

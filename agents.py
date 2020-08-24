@@ -411,6 +411,86 @@ class PerfectCreditBaselineAgent(ReinforceAgent):
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
 
+
+class PerfectCreditMixtureAgent(ReinforceAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, env, episode_length,
+                 add_v_baseline=False, mixture_lambda=0.5):
+        super().__init__(env_shape, alpha, gamma)
+
+        self.env = env
+        self.episode_length = episode_length
+        self.n_state_actions = env_shape
+        self.n_states = env_shape[0]
+        self.possible_rs = possible_rs
+        self.add_v_baseline = add_v_baseline
+        self.mixture_lambda = mixture_lambda
+
+    def init_hindsight(self):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        self.env.compute_hinsight_probabilities_analytically(pi_a_s)
+
+    def compute_K(self, states, actions, rewards, dones):
+
+        def index_by_returns(prob, z):
+            return z * prob + (1 - z) * (1 - prob)
+
+        z = np.empty_like(rewards, dtype='int32')
+        start_idx = 0
+        for idx in dones.nonzero()[0]:
+            end_idx = idx + 1
+            z_i = int(np.sum(rewards[start_idx:end_idx]))
+            assert z_i in [0, 1]
+            z[start_idx:end_idx] = z_i
+            start_idx = end_idx
+
+        pt_z_s = index_by_returns(self.env.pt_z_s[states], z)
+        pt_z_sa = index_by_returns(self.env.pt_z_sa[states, actions], z)
+
+        q_lambda = self.mixture_lambda * pt_z_sa / (self.mixture_lambda * pt_z_sa + (1 - self.mixture_lambda) * pt_z_s)
+        K_lambda = (q_lambda - self.mixture_lambda) / self.mixture_lambda / (1 - self.mixture_lambda)
+        return torch.Tensor(K_lambda)
+
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+        dones = np.asarray(dones)
+        counterf_actions = self.select_action(states, False)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Get credit ratios from environment, mark undefined
+        self.init_hindsight()
+        K_true = self.compute_K(states, actions, rewards, dones)
+        K_counterf = self.compute_K(states, counterf_actions, rewards, dones)
+
+        if self.add_v_baseline:
+            v = self.env.pt_z_s[states]
+            adv = cum_rewards - v
+        else:
+            adv = cum_rewards
+
+        adv_true = (self.mixture_lambda * K_true * adv).detach()
+        adv_counterf = ((1 - self.mixture_lambda) * K_counterf * adv).detach()
+
+        # Next, compute eligibility
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv_true, counterf_actions, adv_counterf)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), (adv_true + adv_counterf).mean()
+
+    def make_pg_step(self, states, actions, advantage, counterf_actions, counterf_advantage):
+        loss, cats, mean_var = self.compute_eligibility(states, actions, advantage)
+        loss_counterf, _, _ = self.compute_eligibility(states, actions, advantage)
+
+        self.pi_opt.zero_grad()
+        (loss + loss_counterf).mean().backward()
+        self.pi_opt.step()  # SGD step
+
+        return loss, cats, mean_var
+
 # =======================================================================================================
 # =======================================================================================================
 
@@ -546,49 +626,6 @@ class CreditBaselineMixtureCounterfactualAgent(CreditBaselineAgent):
         advantage = cum_rewards * (1 - credit_ratio)
 
         alt_advantage = cum_rewards * (1 - alt_credit_ratio)
-
-        # Next, compute eligibility for each set of actions
-        loss, cats, mean_var = self.compute_eligibility(states, actions, advantage)
-        alt_loss, alt_cats, alt_mean_var = self.compute_eligibility(states, alt_actions, alt_advantage)
-
-        # Now update the combined objective
-        self.pi_opt.zero_grad()
-        (loss + alt_loss).mean().backward()
-        self.pi_opt.step()  # SGD step
-
-        return loss.mean().item(), mean_var, cats.entropy().mean().item(), advantage.mean()
-
-
-class MixtureVBaselineAgent(CreditBaselineAgent):
-    def __init__(self, env_shape: tuple, alpha: float, gamma: float, possible_rs: np.array, mix_ratio):
-        super().__init__(env_shape, alpha, gamma, possible_rs)
-        self.mix_ratio = mix_ratio
-
-    # Given a trajectory for one episode, update the policy
-    def update(self, states, actions, rewards, next_states, dones):
-        states = torch.LongTensor(states)
-        actions = torch.LongTensor(actions)
-        rewards = np.asarray(rewards)
-        dones = np.asarray(dones)
-
-        # First compute cumulative rewards
-        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
-        self.update_values(states, cum_rewards)
-        vals = torch.index_select(self.value, 0, states)
-        adv = cum_rewards - vals
-
-        # Update credit counts and compute credit ratio
-        credit_ratio = self.compute_update_credit_mixture(states, actions, cum_rewards, self.mix_ratio)
-
-        # Sample a batch of alternative actions from the policy
-        alt_actions = self.select_action(states, False)
-
-        # If we have not seen this action before, we assume P(r|s,a)=P(r|s)
-        alt_credit_ratio = self.compute_credit_mixture(states, alt_actions, cum_rewards, self.mix_ratio)
-
-        advantage = adv * (1 - credit_ratio)
-
-        alt_advantage = adv * (1 - alt_credit_ratio)
 
         # Next, compute eligibility for each set of actions
         loss, cats, mean_var = self.compute_eligibility(states, actions, advantage)

@@ -6,18 +6,19 @@ import click
 from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
-    CreditBaselineAgent, ValueBaselineAgent, PerfectCreditBaselineAgent, PerfectValueBaselineAgent
+    CreditBaselineAgent, ValueBaselineAgent, PerfectCreditBaselineAgent, PerfectValueBaselineAgent, \
+    PerfectCreditMixtureAgent
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
     CounterexampleBandit2Env
-from logger import LoggingManager, WandbLogger, LocalLogger
+from logger import LoggingManager, WandbLogger, LocalLogger, ConsoleLogger
 from train import train
 
 
-def get_current_sha():
+def get_current_sha(debug):
     repo = Repo('.')
     # TODO maybe too harsh here, maybe need to add debugger check
-    if len(repo.index.diff(None)) > 0:
+    if not debug and len(repo.index.diff(None)) > 0:
         raise Exception("There are uncommited changes in repo!")
     return repo.head.commit.hexsha
 
@@ -58,6 +59,7 @@ AGENT_CONSTRUCTORS = {
     "perfect_credit_baseline": ignore_extra_args(PerfectCreditBaselineAgent),
     "perfect_value_baseline": ignore_extra_args(PerfectValueBaselineAgent),
     "perfect_mica": partial(ignore_extra_args(PerfectCreditBaselineAgent), flip_ratio=True),
+    "perfect_credit_mixture": ignore_extra_args(PerfectCreditMixtureAgent),
     "random": ignore_extra_args(RandomAgent)
 }
 
@@ -82,6 +84,9 @@ def cli():
 @click.option("--log_folder", type=str, default=None)
 @click.option("--exp_name", type=str, default='experiment')
 @click.option("--h_analytical", type=bool, default=False)
+@click.option("--mixture_lambda", type=float, default=1.0)
+@click.option("--add_v_baseline", type=bool, default=False)
+@click.option("--debug", type=bool, default=False)
 def run(
     model_type,
     env_type,
@@ -97,6 +102,9 @@ def run(
     log_folder,
     exp_name,
     h_analytical,
+    mixture_lambda,
+    add_v_baseline,
+    debug,
 ):
     for run_n in range(run_n_times):
         config = {
@@ -108,14 +116,18 @@ def run(
             'beta': beta,
             'gamma': gamma,
             'eps_per_train': eps_per_train,
-            'git_sha': get_current_sha(),
+            'git_sha': get_current_sha(debug),
             'h_analytical': h_analytical,
+            'mixture_lambda': mixture_lambda,
+            'add_v_baseline': add_v_baseline,
         }
         logger_manager = LoggingManager()
         if project is not None:
             logger_manager.add_logger(WandbLogger(project, exp_name))
         if log_folder is not None:
             logger_manager.add_logger(LocalLogger(log_folder, exp_name))
+        if debug:
+            logger_manager.add_logger(ConsoleLogger())
         logger_manager.log_config(config)
 
         if env_type not in ENV_CONSTRUCTORS:
@@ -135,7 +147,9 @@ def run(
                                                    gamma=gamma,
                                                    possible_rs=env.possible_r_values,
                                                    episode_length=epi_length,
-                                                   h_analytical=h_analytical)
+                                                   h_analytical=h_analytical,
+                                                   mixture_lambda=mixture_lambda,
+                                                   add_v_baseline=add_v_baseline)
 
         train_rs, val_rs, visited, losses, loss_vars = train(
             agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, logger=logger_manager,
