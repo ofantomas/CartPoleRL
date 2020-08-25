@@ -96,8 +96,9 @@ def estimate_pg_variance(env, agent, policy, ep_length, n_episodes=10000):
 
     # forbid updates in agent
     agent.pi_opt = torch.optim.SGD(params=[agent.pi], lr=agent.alpha)
+    pi_opt_step = agent.pi_opt.step
     agent.pi_opt.step = lambda *args: None
-    zero_grad = agent.pi_opt.zero_grad
+    pi_opt_zero_grad = agent.pi_opt.zero_grad
     agent.pi_opt.zero_grad = lambda *args: None
 
     # extract new policy
@@ -106,6 +107,7 @@ def estimate_pg_variance(env, agent, policy, ep_length, n_episodes=10000):
 
     # estimate necessary distributions, prevent reestimation on each iteration
     env.initialize_hindsight(ep_length, pi_a_s)
+    env_initialize_hindsight = env.initialize_hindsight
     env.initialize_hindsight = lambda *args: None
 
     if hasattr(agent, 'estimate_optimal_baseline'):
@@ -124,12 +126,16 @@ def estimate_pg_variance(env, agent, policy, ep_length, n_episodes=10000):
         ep_states, ep_acts, ep_rewards, ep_next_states, ep_dones = rollout(env, agent, ep_length)
         agent.update(ep_states, ep_acts, ep_rewards, ep_next_states, ep_dones)
         pi_grads[i] = agent.pi._grad
-        zero_grad()
+        pi_opt_zero_grad()
 
         states.append(ep_states)
         acts.append(ep_acts)
         rewards.append(ep_rewards)
         next_states.append(ep_next_states)
         dones.append(ep_dones)
+
+    agent.pi_opt.step = pi_opt_step
+    agent.pi_opt.zero_grad = pi_opt_zero_grad
+    env.initialize_hindsight = env_initialize_hindsight
 
     return pi_grads
