@@ -483,7 +483,7 @@ class PerfectCreditMixtureAgent(ReinforceAgent):
 
     def make_pg_step(self, states, actions, advantage, counterf_actions, counterf_advantage):
         loss, cats, mean_var = self.compute_eligibility(states, actions, advantage)
-        loss_counterf, _, _ = self.compute_eligibility(states, actions, advantage)
+        loss_counterf, _, _ = self.compute_eligibility(states, counterf_actions, counterf_advantage)
 
         self.pi_opt.zero_grad()
         (loss + loss_counterf).mean().backward()
