@@ -471,7 +471,7 @@ class PerfectCreditMixtureAgent(ReinforceAgent):
             v = self.env.pt_z_s[states]
             adv = cum_rewards - v
         else:
-            adv = cum_rewards
+            adv = cum_rewards - 1
 
         adv_true = (self.mixture_lambda * K_true * adv).detach()
         adv_counterf = ((1 - self.mixture_lambda) * K_counterf * adv).detach()
