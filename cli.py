@@ -3,7 +3,7 @@ import inspect
 
 import click
 # Core setup and run for CCA tabular experiments
-from git import Repo
+#from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
     CreditBaselineAgent, ValueBaselineAgent, PerfectCreditBaselineAgent, PerfectValueBaselineAgent, \
@@ -15,12 +15,12 @@ from logger import LoggingManager, WandbLogger, LocalLogger
 from train import train
 
 
-def get_current_sha():
-    repo = Repo('.')
-    # TODO maybe too harsh here, maybe need to add debugger check
-    if len(repo.index.diff(None)) > 0:
-        raise Exception("There are uncommited changes in repo!")
-    return repo.head.commit.hexsha
+#def get_current_sha():
+#    repo = Repo('.')
+#    # TODO maybe too harsh here, maybe need to add debugger check
+#    if len(repo.index.diff(None)) > 0:
+#        raise Exception("There are uncommited changes in repo!")
+#    return repo.head.commit.hexsha
 
 
 ENV_CONSTRUCTORS = {
@@ -110,8 +110,9 @@ def run(
             'beta': beta,
             'gamma': gamma,
             'eps_per_train': eps_per_train,
-            'git_sha': get_current_sha(),
+            #'git_sha': get_current_sha(),
             'h_analytical': h_analytical,
+            'exp_name': exp_name,
         }
         logger_manager = LoggingManager()
         if project is not None:
