@@ -190,15 +190,15 @@ def main():
             removed some of them as candidates via selection or exclusion 
             rules (below).)
         xaxis (string): Pick what column from data is used for the x-axis.
-             Defaults to ``TotalEnvInteracts``.
+             Defaults to ``training_steps``.
         value (strings): Pick what columns from data to graph on the y-axis. 
             Submitting multiple values will produce multiple graphs. Defaults
             to ``Performance``, which is not an actual output of any algorithm.
-            Instead, ``Performance`` refers to either ``AverageEpRet``, the 
+            Instead, ``Performance`` refers to either ``train_reward``, the 
             correct performance measure for the on-policy algorithms, or
-            ``AverageTestEpRet``, the correct performance measure for the 
+            ``test_reward``, the correct performance measure for the 
             off-policy algorithms. The plotter will automatically figure out 
-            which of ``AverageEpRet`` or ``AverageTestEpRet`` to report for 
+            which of ``train_reward`` or ``test_reward`` to report for 
             each separate logdir.
         count: Optional flag. By default, the plotter shows y-values which
             are averaged across all results that share an ``exp_name``, 
