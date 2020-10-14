@@ -6,8 +6,10 @@ import click
 #from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
-     ValueBaselineAgent, PerfectValueBaselineAgent, \
-    OptimalStateBaselineAgent, ActionStateBaselineAgent
+                   ValueBaselineAgent, PerfectValueBaselineAgent, \
+                   OptimalStateBaselineAgent, ActionStateBaselineAgent,\
+                   PerfectActionStateBaselineAgent    
+    
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
     CounterexampleBandit2Env
@@ -58,6 +60,7 @@ AGENT_CONSTRUCTORS = {
     "perfect_value_baseline": ignore_extra_args(PerfectValueBaselineAgent),
     "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
     "state_action_baseline": ignore_extra_args(ActionStateBaselineAgent),
+    "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),
     "random": ignore_extra_args(RandomAgent)
 }
 
@@ -98,7 +101,7 @@ def run(
     exp_name,
     h_analytical,
 ):
-    for run_n in range(run_n_times):
+    for _ in range(run_n_times):
         config = {
             'model_type': model_type,
             'env_type': env_type,
@@ -138,9 +141,7 @@ def run(
                                                    episode_length=epi_length,
                                                    h_analytical=h_analytical)
 
-        train_rs, val_rs, visited, losses, loss_vars = train(
-            agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, logger=logger_manager,
-        )
+        train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, logger=logger_manager,)
 
 
 if __name__ == "__main__":

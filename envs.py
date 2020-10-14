@@ -246,6 +246,16 @@ class FrozenLakeEnv(AbstractGridEnv):
         values = self.pt_z_sa[ts, states, actions]
 
         return values
+    
+    def get_state_all_action_values(self, states, ts):
+        if self.pt_z_sa is None:
+            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+    
+        states, ts = (np.array(l, dtype='int') for l in (states, ts))
+        values = self.pt_z_sa[ts, states, :]
+
+        return values
+
 
 
 class TabEnv:
