@@ -8,7 +8,7 @@ import click
 from agents import ReinforceAgent, RandomAgent, \
                    ValueBaselineAgent, PerfectValueBaselineAgent, \
                    OptimalStateBaselineAgent, ActionStateBaselineAgent,\
-                   PerfectActionStateBaselineAgent    
+                   PerfectActionStateBaselineAgent, TrajectoryCVAgent   
     
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
@@ -61,6 +61,7 @@ AGENT_CONSTRUCTORS = {
     "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
     "state_action_baseline": ignore_extra_args(ActionStateBaselineAgent),
     "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),
+    "trajectory_wise_control_variates": ignore_extra_args(TrajectoryCVAgent),
     "random": ignore_extra_args(RandomAgent)
 }
 

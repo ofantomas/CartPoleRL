@@ -445,3 +445,74 @@ class PerfectActionStateBaselineAgent(ReinforceAgent):
         self.pi_opt.step()  # SGD step
 
         return loss, cats, mean_var
+
+
+class TrajectoryCVAgent(ReinforceAgent):
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float):
+        super().__init__(env_shape, alpha, gamma)
+
+        self.Q = torch.zeros(env_shape, dtype=torch.float, requires_grad=True)
+        self.beta = beta
+        self.q_opt = torch.optim.SGD(params=[self.Q], lr=self.beta)
+
+    def accumulate(self, values):
+        return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
+    
+    # Compute q-baseline advantage values, and update the q function
+    # Unlike other methods, the policy target here is the Q-value directly
+    def compute_update_q_values(self, states, actions, cum_rewards):
+        # Subtract Q baseline
+        qs = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
+        q_loss = (cum_rewards - qs) ** 2 / 2
+
+        # Compute manual value loss
+        self.q_opt.zero_grad()
+        q_loss.mean().backward()
+        self.q_opt.step()
+
+        return q_loss
+
+    def compute_eligibility(self, states, actions, advantage):
+        logits = self.pi[states]
+        policy = torch.distributions.Categorical(logits=logits)
+        # Compute expectation over action~pi of grad_log_pi(a|s) * Q(a, s)
+        expectations = (policy.probs * self.Q[states]).sum(dim=1).squeeze()
+        log_probs = policy.log_prob(actions)
+        #C ompute expectations of future Q functions to make estimate unbiased
+
+        future_expectations = self.accumulate(torch.cat((expectations[1:], torch.FloatTensor([0]))))
+        loss = - log_probs * advantage - expectations - log_probs * future_expectations.detach()
+        
+        # Compute mean variance of losses per sa pair
+        tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
+        tuple_list.sort(key=lambda x: x[:2])  # groupby needs it
+        grouped = groupby(tuple_list, lambda x: x[:2])
+        variances = [np.var([x[2] for x in lst]) for k, lst in grouped]
+        mean_var = np.mean(variances)
+        return loss, policy, mean_var
+    
+    # Compute value-baseline advantage values, and update the value function
+    def compute_advantage(self, states, actions, cum_rewards):
+        # Subtract action-state baseline and add expectation over actions to keep the estimate unbiased
+        q_a_s = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
+        # Compute sum of future Q functions 
+        q_a_s = self.accumulate(q_a_s)
+        advantage = cum_rewards - q_a_s.detach()
+        return advantage 
+
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Update Q values and get targets
+        _ = self.compute_update_q_values(states, actions, cum_rewards)
+        adv = self.compute_advantage(states, actions, cum_rewards)
+
+        # Update the policy
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
