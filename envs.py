@@ -98,6 +98,8 @@ class FrozenLakeEnv(AbstractGridEnv):
         self.pt_z_s = None
         # distribution P(Z=1|s, a) of size episode_len x n_actions x n_states x n_actions
         self.pt_z_sa = None
+        # transition probabilities
+        self.p_s_sa = None
         # state visitation distribution of size n_states
         self.ds = None
 
@@ -131,24 +133,24 @@ class FrozenLakeEnv(AbstractGridEnv):
 
     def initialize_hindsight(self, episode_length, pi_a_s):
         # compute transition probabilities
-        p_s_sa = np.zeros((self.n_states, self.n_states, self.n_actions))
+        self.p_s_sa = np.zeros((self.n_states, self.n_states, self.n_actions))
         for s in range(self.n_states):
             for a in range(self.n_actions):
                 # according to policy
                 next_s = self.transitions[s, a]
-                p_s_sa[next_s, s, a] += 0.8
+                self.p_s_sa[next_s, s, a] += 0.8
                 for shift in (-1, 1):
                     changed_a = (a + shift) % 4
                     next_s = self.transitions[s, changed_a]
-                    p_s_sa[next_s, s, a] += 0.1
+                    self.p_s_sa[next_s, s, a] += 0.1
 
             # recalculate for terminal states
             if s in self.done_states:
-                p_s_sa[:, s, :] = 0.
-                p_s_sa[s, s, :] = 1.
+                self.p_s_sa[:, s, :] = 0.
+                self.p_s_sa[s, s, :] = 1.
 
         # compute state to state probabilities
-        p_s_s = (p_s_sa * pi_a_s.T).sum(2)
+        p_s_s = (self.p_s_sa * pi_a_s.T).sum(2)
 
         # compute state visitation distribution
         ds_unnormalized = np.zeros(self.n_states)
@@ -169,7 +171,7 @@ class FrozenLakeEnv(AbstractGridEnv):
         pt_z_s = np.zeros((episode_length, self.n_states))
         p_s_s_power = np.eye(self.n_states)
         for t in range(episode_length - 1, -1, -1):
-            pt_z_sa[t] = (p_s_s_power[:, :, None, None] * p_s_sa).sum(1)[success_state]
+            pt_z_sa[t] = (p_s_s_power[:, :, None, None] * self.p_s_sa).sum(1)[success_state]
             pt_z_s[t] = (pt_z_sa[t] * pi_a_s.T).sum(1)
             p_s_s_power = p_s_s@p_s_s_power
 
@@ -255,6 +257,15 @@ class FrozenLakeEnv(AbstractGridEnv):
         values = self.pt_z_sa[ts, states, :]
 
         return values
+    
+    def get_transition_probs(self, states, actions):
+        if self.p_s_sa is None:
+            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+
+        states, actions = ((np.array(l, dtype='int') for l in (states, actions)))
+        transition_probs = self.p_s_sa[:, states, actions]
+
+        return transition_probs
 
 
 
