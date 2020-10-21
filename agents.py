@@ -592,3 +592,97 @@ class PerfectTrajectoryCVAgent(ReinforceAgent):
         self.pi_opt.step()  # SGD step
 
         return loss, cats, mean_var
+
+
+class PerfectDynamicsTrajCVAgent(ReinforceAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, 
+                 env, episode_length):
+        super().__init__(env_shape, alpha, gamma)
+        self.env = env
+        self.episode_length = episode_length
+
+    def accumulate(self, values):
+        return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
+
+    def compute_eligibility(self, states, actions, advantage, expectation, future_expectation, future_expectation_states):
+        logits = self.pi[states]
+        policy = torch.distributions.Categorical(logits=logits)
+        #compute expecation over action~pi of grad_log_pi(a|s) * Q(a, s)
+        log_probs = policy.log_prob(actions)
+        loss = - log_probs * (advantage - future_expectation.detach() -  future_expectation_states.detach()) - expectation
+
+        # Compute mean variance of losses per sa pair
+        tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
+        tuple_list.sort(key=lambda x: x[:2])  # groupby needs it
+        grouped = groupby(tuple_list, lambda x: x[:2])
+        variances = [np.var([x[2] for x in lst]) for k, lst in grouped]
+        mean_var = np.mean(variances)
+        return loss, policy, mean_var
+    
+
+    def compute_advantage(self, states, actions, cum_rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        self.env.initialize_hindsight(self.episode_length, pi_a_s)
+
+        # here we assume that data is sequential and begins with the start of the episode
+        extended_done_ids = np.flatnonzero([True] + dones)
+        ts = []
+        for i in range(len(extended_done_ids) - 1):
+            ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
+
+        # Compute Value functions in next states
+
+        transition_probs = self.env.get_transition_probs(states, actions)
+        
+        q_s = self.env.get_state_all_action_values(states=states, ts=ts)
+        q_s = torch.FloatTensor(q_s)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
+        expectation = (policy.probs * q_s).sum(dim=1).squeeze()
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+
+        v_all_s = self.env.get_state_all_values(ts=ts)
+        v_all_s = torch.FloatTensor(v_all_s)
+        transition_probs = self.env.get_transition_probs(states=states, actions=actions).T
+        transition_probs = torch.FloatTensor(transition_probs)
+        expectation_states = (transition_probs * v_all_s).sum(dim=1).squeeze()
+        future_expectation_states = self.accumulate(torcsh.cat((expectation_states[1:], torch.FloatTensor([0]))))
+        
+        v_s = self.env.get_state_value(states=states, ts=ts)
+        v_s = torch.FloatTensor(v_s)
+        # Compute sum of future V functions 
+        v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
+        
+        q_a_s = self.env.get_state_action_value(states=states, actions=actions, ts=ts)
+        q_a_s = torch.FloatTensor(q_a_s)
+        # Compute sum of future Q functions 
+        q_a_s = self.accumulate(q_a_s)
+        advantage = cum_rewards - q_a_s - v_s
+        return advantage, expectation, future_expectation, future_expectation_states
+
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Update Q values and get targets
+        adv, expectation, future_expectation, future_expectation_states = self.compute_advantage(states, actions, cum_rewards, dones)
+
+        # Update the policy
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv, expectation, future_expectation, future_expectation_states)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
+
+    def make_pg_step(self, states, actions, advantage, expectation, future_expectation, future_expectation_states):
+        loss, cats, mean_var = self.compute_eligibility(states, actions, advantage, expectation,
+                                                        future_expectation, future_expectation_states)
+        # TODO consider doing this manually?
+        self.pi_opt.zero_grad()
+        loss.mean().backward()
+        self.pi_opt.step()  # SGD step
+
+        return loss, cats, mean_var

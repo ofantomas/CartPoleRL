@@ -9,7 +9,7 @@ from agents import ReinforceAgent, RandomAgent, \
                    ValueBaselineAgent, PerfectValueBaselineAgent, \
                    OptimalStateBaselineAgent, ActionStateBaselineAgent,\
                    PerfectActionStateBaselineAgent, TrajectoryCVAgent, \
-                   PerfectTrajectoryCVAgent
+                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent
     
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
@@ -64,6 +64,7 @@ AGENT_CONSTRUCTORS = {
     "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),
     "trajectory_wise_control_variates": ignore_extra_args(TrajectoryCVAgent),
     "perfect_trajectory_wise_control_variates": ignore_extra_args(PerfectTrajectoryCVAgent),
+    "perfect_dynamics_traj_cv": ignore_extra_args(PerfectDynamicsTrajCVAgent),
     "random": ignore_extra_args(RandomAgent)
 }
 

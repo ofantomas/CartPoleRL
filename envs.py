@@ -240,6 +240,15 @@ class FrozenLakeEnv(AbstractGridEnv):
 
         return values
 
+    def get_state_all_values(self, ts):
+        if self.pt_z_s is None:
+            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+
+        ts = np.array(ts)
+        values = self.pt_z_s[ts, :]
+
+        return values
+
     def get_state_action_value(self, states, actions, ts):
         if self.pt_z_sa is None:
             raise Exception(f"Initialize with `initialize_hindsight` method first!")
