@@ -481,7 +481,7 @@ class TrajectoryCVAgent(ReinforceAgent):
         #C ompute expectations of future Q functions to make estimate unbiased
 
         future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
-        loss = - log_probs * advantage - expectation - log_probs * future_expectation.detach()
+        loss = - log_probs * (advantage + future_expectation.detach()) - expectation
         
         # Compute mean variance of losses per sa pair
         tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
@@ -532,7 +532,7 @@ class PerfectTrajectoryCVAgent(ReinforceAgent):
         policy = torch.distributions.Categorical(logits=logits)
         #compute expecation over action~pi of grad_log_pi(a|s) * Q(a, s)
         log_probs = policy.log_prob(actions)
-        loss = - log_probs * advantage - expectation - log_probs * future_expectation.detach()
+        loss = -log_probs * (advantage.detach() + future_expectation.detach()) - expectation
 
         # Compute mean variance of losses per sa pair
         tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
@@ -565,7 +565,7 @@ class PerfectTrajectoryCVAgent(ReinforceAgent):
         q_a_s = torch.FloatTensor(q_a_s)
         # Compute sum of future Q functions 
         q_a_s = self.accumulate(q_a_s)
-        advantage = cum_rewards - q_a_s
+        advantage = cum_rewards - q_a_s.detach()
         return advantage, expectation, future_expectation
 
     def update(self, states, actions, rewards, next_states, dones):
@@ -609,7 +609,7 @@ class PerfectDynamicsTrajCVAgent(ReinforceAgent):
         policy = torch.distributions.Categorical(logits=logits)
         #compute expecation over action~pi of grad_log_pi(a|s) * Q(a, s)
         log_probs = policy.log_prob(actions)
-        loss = - log_probs * (advantage - future_expectation.detach() -  future_expectation_states.detach()) - expectation
+        loss = - log_probs * (advantage.detach() + future_expectation.detach() +  future_expectation_states.detach()) - expectation
 
         # Compute mean variance of losses per sa pair
         tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
@@ -633,8 +633,6 @@ class PerfectDynamicsTrajCVAgent(ReinforceAgent):
             ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
 
         # Compute Value functions in next states
-
-        transition_probs = self.env.get_transition_probs(states, actions)
         
         q_s = self.env.get_state_all_action_values(states=states, ts=ts)
         q_s = torch.FloatTensor(q_s)
@@ -642,18 +640,18 @@ class PerfectDynamicsTrajCVAgent(ReinforceAgent):
         expectation = (policy.probs * q_s).sum(dim=1).squeeze()
         future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
 
-        v_all_s = self.env.get_state_all_values(ts=ts)
+        v_all_s = self.env.get_state_all_values(ts=ts).T
         v_all_s = torch.FloatTensor(v_all_s)
-        transition_probs = self.env.get_transition_probs(states=states, actions=actions).T
+        transition_probs = self.env.get_transition_probs(states=states, actions=actions)
         transition_probs = torch.FloatTensor(transition_probs)
-        expectation_states = (transition_probs * v_all_s).sum(dim=1).squeeze()
-        future_expectation_states = self.accumulate(torcsh.cat((expectation_states[1:], torch.FloatTensor([0]))))
-        
+        expectation_states = (transition_probs * v_all_s).sum(dim=0).squeeze()
+        future_expectation_states = self.accumulate(torch.cat((expectation_states[1:], torch.FloatTensor([0]))))
+
         v_s = self.env.get_state_value(states=states, ts=ts)
         v_s = torch.FloatTensor(v_s)
         # Compute sum of future V functions 
         v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
-        
+
         q_a_s = self.env.get_state_action_value(states=states, actions=actions, ts=ts)
         q_a_s = torch.FloatTensor(q_a_s)
         # Compute sum of future Q functions 
