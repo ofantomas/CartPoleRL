@@ -9,7 +9,8 @@ from agents import ReinforceAgent, RandomAgent, \
                    ValueBaselineAgent, PerfectValueBaselineAgent, \
                    OptimalStateBaselineAgent, ActionStateBaselineAgent,\
                    PerfectActionStateBaselineAgent, TrajectoryCVAgent, \
-                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent
+                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent, \
+                   DynamicsTrajCVAgent, PerfectDynamicsEstQVTrajCVAgent
     
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
     SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
@@ -62,9 +63,11 @@ AGENT_CONSTRUCTORS = {
     "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
     "state_action_baseline": ignore_extra_args(ActionStateBaselineAgent),
     "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),
-    "trajectory_wise_control_variates": ignore_extra_args(TrajectoryCVAgent),
-    "perfect_trajectory_wise_control_variates": ignore_extra_args(PerfectTrajectoryCVAgent),
+    "traj_cv": ignore_extra_args(TrajectoryCVAgent),
+    "perfect_traj_cv": ignore_extra_args(PerfectTrajectoryCVAgent),
     "perfect_dynamics_traj_cv": ignore_extra_args(PerfectDynamicsTrajCVAgent),
+    "dynamics_traj_cv": ignore_extra_args(DynamicsTrajCVAgent),
+    "perfect_dynamics_est_QV_traj_cv": ignore_extra_args(PerfectDynamicsEstQVTrajCVAgent),
     "random": ignore_extra_args(RandomAgent)
 }
 

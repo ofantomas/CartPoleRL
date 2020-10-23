@@ -300,10 +300,10 @@ class QAdvantageAgent(ValueBaselineAgent, QTargetAgent):
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
         # Update Q and get targets
-        qs, q_loss = self.compute_update_q_values(states, actions, cum_rewards)
+        qs, _ = self.compute_update_q_values(states, actions, cum_rewards)
 
         # Next subtract value baseline from qs to get advantage
-        adv, val_loss = self.compute_update_value_advantage(states, qs)
+        adv, _ = self.compute_update_value_advantage(states, qs)
 
         # Update the policy
         loss, cats, mean_var = self.make_pg_step(states, actions, adv)
@@ -321,7 +321,7 @@ class ActionStateBaselineAgent(ReinforceAgent):
 
     # Compute q-baseline advantage values, and update the q function
     # Unlike other methods, the policy target here is the Q-value directly
-    def compute_update_q_values(self, states, actions, cum_rewards):
+    def update_q_values(self, states, actions, cum_rewards):
         # Subtract Q baseline
         qs = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
         q_loss = (cum_rewards - qs) ** 2 / 2
@@ -366,7 +366,7 @@ class ActionStateBaselineAgent(ReinforceAgent):
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
         # Update Q values and get targets
-        _ = self.compute_update_q_values(states, actions, cum_rewards)
+        _ = self.update_q_values(states, actions, cum_rewards)
         adv = self.compute_advantage(states, actions, cum_rewards)
 
         # Update the policy
@@ -447,31 +447,13 @@ class PerfectActionStateBaselineAgent(ReinforceAgent):
         return loss, cats, mean_var
 
 
-class TrajectoryCVAgent(ReinforceAgent):
+class TrajectoryCVAgent(ActionStateBaselineAgent):
     def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float):
-        super().__init__(env_shape, alpha, gamma)
-
-        self.Q = torch.zeros(env_shape, dtype=torch.float, requires_grad=True)
-        self.beta = beta
-        self.q_opt = torch.optim.SGD(params=[self.Q], lr=self.beta)
+        super().__init__(env_shape, alpha, beta, gamma)
 
     def accumulate(self, values):
         return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
     
-    # Compute q-baseline advantage values, and update the q function
-    # Unlike other methods, the policy target here is the Q-value directly
-    def compute_update_q_values(self, states, actions, cum_rewards):
-        # Subtract Q baseline
-        qs = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
-        q_loss = (cum_rewards - qs) ** 2 / 2
-
-        # Compute manual value loss
-        self.q_opt.zero_grad()
-        q_loss.mean().backward()
-        self.q_opt.step()
-
-        return q_loss
-
     def compute_eligibility(self, states, actions, advantage):
         logits = self.pi[states]
         policy = torch.distributions.Categorical(logits=logits)
@@ -481,7 +463,7 @@ class TrajectoryCVAgent(ReinforceAgent):
         #C ompute expectations of future Q functions to make estimate unbiased
 
         future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
-        loss = - log_probs * (advantage + future_expectation.detach()) - expectation
+        loss = - log_probs * (advantage.detach() + future_expectation.detach()) - expectation
         
         # Compute mean variance of losses per sa pair
         tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
@@ -497,42 +479,23 @@ class TrajectoryCVAgent(ReinforceAgent):
         q_a_s = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
         # Compute sum of future Q functions 
         q_a_s = self.accumulate(q_a_s)
-        advantage = cum_rewards - q_a_s.detach()
-        return advantage 
+        advantage = cum_rewards - q_a_s
+        return advantage
 
-    def update(self, states, actions, rewards, next_states, dones):
-        states = torch.LongTensor(states)
-        actions = torch.LongTensor(actions)
-        rewards = np.asarray(rewards)
-
-        # First compute cumulative rewards
-        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
-
-        # Update Q values and get targets
-        _ = self.compute_update_q_values(states, actions, cum_rewards)
-        adv = self.compute_advantage(states, actions, cum_rewards)
-
-        # Update the policy
-        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
-
-        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
-
-class PerfectTrajectoryCVAgent(ReinforceAgent):
+class PerfectTrajectoryCVAgent(PerfectActionStateBaselineAgent):
     def __init__(self, env_shape: tuple, alpha: float, gamma: float, 
                  env, episode_length):
-        super().__init__(env_shape, alpha, gamma)
-        self.env = env
-        self.episode_length = episode_length
+        super().__init__(env_shape, alpha, gamma, env, episode_length)
 
     def accumulate(self, values):
         return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
 
-    def compute_eligibility(self, states, actions, advantage, expectation, future_expectation):
+    def compute_eligibility(self, states, actions, advantage, expectation):
         logits = self.pi[states]
         policy = torch.distributions.Categorical(logits=logits)
         #compute expecation over action~pi of grad_log_pi(a|s) * Q(a, s)
         log_probs = policy.log_prob(actions)
-        loss = -log_probs * (advantage.detach() + future_expectation.detach()) - expectation
+        loss = -log_probs * advantage.detach()  - expectation
 
         # Compute mean variance of losses per sa pair
         tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
@@ -565,60 +528,14 @@ class PerfectTrajectoryCVAgent(ReinforceAgent):
         q_a_s = torch.FloatTensor(q_a_s)
         # Compute sum of future Q functions 
         q_a_s = self.accumulate(q_a_s)
-        advantage = cum_rewards - q_a_s.detach()
-        return advantage, expectation, future_expectation
-
-    def update(self, states, actions, rewards, next_states, dones):
-        states = torch.LongTensor(states)
-        actions = torch.LongTensor(actions)
-        rewards = np.asarray(rewards)
-
-        # First compute cumulative rewards
-        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
-
-        # Update Q values and get targets
-        adv, expectation, future_expectation = self.compute_advantage(states, actions, cum_rewards, dones)
-
-        # Update the policy
-        loss, cats, mean_var = self.make_pg_step(states, actions, adv, expectation, future_expectation)
-
-        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
-
-    def make_pg_step(self, states, actions, advantage, expectation, future_expectation):
-        loss, cats, mean_var = self.compute_eligibility(states, actions, advantage, expectation, future_expectation)
-        # TODO consider doing this manually?
-        self.pi_opt.zero_grad()
-        loss.mean().backward()
-        self.pi_opt.step()  # SGD step
-
-        return loss, cats, mean_var
+        advantage = cum_rewards - q_a_s + future_expectation
+        return advantage, expectation
 
 
-class PerfectDynamicsTrajCVAgent(ReinforceAgent):
+class PerfectDynamicsTrajCVAgent(PerfectTrajectoryCVAgent):
     def __init__(self, env_shape: tuple, alpha: float, gamma: float, 
                  env, episode_length):
-        super().__init__(env_shape, alpha, gamma)
-        self.env = env
-        self.episode_length = episode_length
-
-    def accumulate(self, values):
-        return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
-
-    def compute_eligibility(self, states, actions, advantage, expectation, future_expectation, future_expectation_states):
-        logits = self.pi[states]
-        policy = torch.distributions.Categorical(logits=logits)
-        #compute expecation over action~pi of grad_log_pi(a|s) * Q(a, s)
-        log_probs = policy.log_prob(actions)
-        loss = - log_probs * (advantage.detach() + future_expectation.detach() +  future_expectation_states.detach()) - expectation
-
-        # Compute mean variance of losses per sa pair
-        tuple_list = list(zip(states.numpy(), actions.numpy(), loss.detach().numpy()))
-        tuple_list.sort(key=lambda x: x[:2])  # groupby needs it
-        grouped = groupby(tuple_list, lambda x: x[:2])
-        variances = [np.var([x[2] for x in lst]) for k, lst in grouped]
-        mean_var = np.mean(variances)
-        return loss, policy, mean_var
-    
+        super().__init__(env_shape, alpha, gamma, env, episode_length)
 
     def compute_advantage(self, states, actions, cum_rewards, dones):
         pi_a_s = torch.softmax(self.pi, 1)
@@ -656,8 +573,52 @@ class PerfectDynamicsTrajCVAgent(ReinforceAgent):
         q_a_s = torch.FloatTensor(q_a_s)
         # Compute sum of future Q functions 
         q_a_s = self.accumulate(q_a_s)
-        advantage = cum_rewards - q_a_s - v_s
-        return advantage, expectation, future_expectation, future_expectation_states
+        advantage = cum_rewards - q_a_s - v_s + future_expectation + future_expectation_states
+        return advantage, expectation    
+
+
+class DynamicsTrajCVAgent(TrajectoryCVAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, beta: float):
+        super().__init__(env_shape, alpha, beta, gamma)
+
+        self.p_s_sa = torch.zeros((env_shape[0], env_shape[0], env_shape[1]), dtype=torch.float, requires_grad=False)
+        self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
+        self.beta = beta
+        self.value_opt = torch.optim.SGD(params=[self.value], lr=self.beta)
+
+    def update_values(self, states, cum_rewards):
+        vals = self.value[states]
+        val_loss = (vals - cum_rewards) ** 2 / 2
+
+        self.value_opt.zero_grad()
+        val_loss.mean().backward()
+        self.value_opt.step()
+
+        return val_loss
+
+    def get_transition_probs(self, states, actions):
+        transition_probs = self.p_s_sa[:, states, actions]
+        transition_probs = transition_probs / (transition_probs.sum(dim=0) + 1e-8)
+        return transition_probs
+    
+    def update_transition_probs(self, states, actions):
+        for next_state, state, action in zip(states[1:], states[:-1], actions[:-1]):
+            self.p_s_sa[next_state, state, action] += 1
+    
+    def compute_advantage(self, states, actions, cum_rewards, dones):
+        # Subtract action-state baseline and add expectation over actions to keep the estimate unbiased
+        q_a_s = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
+        v_s = self.value[states]
+        # Compute sum of future Q functions
+        v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
+        q_a_s = self.accumulate(q_a_s)
+
+        transition_probs = self.get_transition_probs(states, actions)
+        expectation_states = (transition_probs * self.value.unsqueeze(dim=1)).sum(dim=0).squeeze()
+        future_expectation_states = self.accumulate(torch.cat((expectation_states[1:], torch.FloatTensor([0]))))
+
+        advantage = cum_rewards - q_a_s - v_s + future_expectation_states
+        return advantage
 
     def update(self, states, actions, rewards, next_states, dones):
         states = torch.LongTensor(states)
@@ -667,20 +628,79 @@ class PerfectDynamicsTrajCVAgent(ReinforceAgent):
         # First compute cumulative rewards
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
 
-        # Update Q values and get targets
-        adv, expectation, future_expectation, future_expectation_states = self.compute_advantage(states, actions, cum_rewards, dones)
+        # Update V, Q values
+        _ = self.update_values(states, cum_rewards)
+        _ = self.update_q_values(states, actions, cum_rewards)
+        
+        #Update transition probs
+        self.update_transition_probs(states, actions)
+
+        #Get targets
+        adv = self.compute_advantage(states, actions, cum_rewards, dones)
 
         # Update the policy
-        loss, cats, mean_var = self.make_pg_step(states, actions, adv, expectation, future_expectation, future_expectation_states)
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
 
-    def make_pg_step(self, states, actions, advantage, expectation, future_expectation, future_expectation_states):
-        loss, cats, mean_var = self.compute_eligibility(states, actions, advantage, expectation,
-                                                        future_expectation, future_expectation_states)
-        # TODO consider doing this manually?
-        self.pi_opt.zero_grad()
-        loss.mean().backward()
-        self.pi_opt.step()  # SGD step
 
-        return loss, cats, mean_var
+class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float, beta: float, 
+                 env, episode_length):
+        super().__init__(env_shape, alpha, beta, gamma)
+
+        self.env = env
+        self.episode_length = episode_length
+
+    def compute_advantage(self, states, actions, cum_rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        self.env.initialize_hindsight(self.episode_length, pi_a_s)
+
+        # here we assume that data is sequential and begins with the start of the episode
+        extended_done_ids = np.flatnonzero([True] + dones)
+        ts = []
+        for i in range(len(extended_done_ids) - 1):
+            ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
+
+        # Compute Value functions in next states
+        
+        q_s_a = self.Q[states, actions]
+        q_s_a = self.accumulate(q_s_a)
+        v_s = self.value[states]
+        v_s = self.accumulate(torch.cat((v_s[1:], torch.zeros(1))))
+
+        transition_probs = self.env.get_transition_probs(states=states, actions=actions)
+        transition_probs = torch.FloatTensor(transition_probs)
+        expectation_states = (transition_probs * self.value.unsqueeze(1)).sum(dim=0).squeeze()
+        future_expectation_states = self.accumulate(torch.cat((expectation_states[1:], torch.FloatTensor([0]))))
+
+        #v_s = self.env.get_state_value(states=states, ts=ts)
+        #v_s = torch.FloatTensor(v_s)
+        # Compute sum of future V functions 
+        #v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
+
+        # Compute sum of future Q functions 
+        advantage = cum_rewards - q_s_a - v_s + future_expectation_states
+        return advantage
+
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Update V, Q values
+        _ = self.update_values(states, cum_rewards)
+        _ = self.update_q_values(states, actions, cum_rewards)
+    
+        #Get targets
+        adv = self.compute_advantage(states, actions, cum_rewards, dones)
+
+        # Update the policy
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean() 
