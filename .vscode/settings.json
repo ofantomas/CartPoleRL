@@ -1,0 +1,4 @@
+{
+    "python.pythonPath": "/home/fantomas/anaconda3/envs/RL_env/bin/python",
+    "python.dataScience.jupyterServerURI": "local"
+}

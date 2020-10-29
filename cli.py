@@ -6,7 +6,7 @@ import click
 #from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
-                   ValueBaselineAgent, PerfectValueBaselineAgent, \
+                   ValueBaselineAgent, PerfectValueBaselineAgent, AnalyticalValueBaselineAgent,\
                    OptimalStateBaselineAgent, ActionStateBaselineAgent,\
                    PerfectActionStateBaselineAgent, TrajectoryCVAgent, \
                    PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent, \
@@ -60,6 +60,7 @@ AGENT_CONSTRUCTORS = {
     "reinforce": ignore_extra_args(ReinforceAgent),
     "value_baseline": ignore_extra_args(ValueBaselineAgent),
     "perfect_value_baseline": ignore_extra_args(PerfectValueBaselineAgent),
+    "analytical_value_baseline": ignore_extra_args(AnalyticalValueBaselineAgent),
     "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
     "state_action_baseline": ignore_extra_args(ActionStateBaselineAgent),
     "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),

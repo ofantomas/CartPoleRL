@@ -190,7 +190,8 @@ def main():
             removed some of them as candidates via selection or exclusion 
             rules (below).)
         xaxis (string): Pick what column from data is used for the x-axis.
-             Defaults to ``training_steps``.
+             Defaults to ``training_steps
+             ``.
         value (strings): Pick what columns from data to graph on the y-axis. 
             Submitting multiple values will produce multiple graphs. Defaults
             to ``Performance``, which is not an actual output of any algorithm.

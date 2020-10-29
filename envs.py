@@ -131,7 +131,8 @@ class FrozenLakeEnv(AbstractGridEnv):
 
         return super().step(act)
 
-    def initialize_hindsight(self, episode_length, pi_a_s):
+    
+    def compute_transition_probs(self):
         # compute transition probabilities
         self.p_s_sa = np.zeros((self.n_states, self.n_states, self.n_actions))
         for s in range(self.n_states):
@@ -148,6 +149,11 @@ class FrozenLakeEnv(AbstractGridEnv):
             if s in self.done_states:
                 self.p_s_sa[:, s, :] = 0.
                 self.p_s_sa[s, s, :] = 1.
+
+    
+    def initialize_hindsight(self, episode_length, pi_a_s):
+        # compute transition probabilities
+        self.compute_transition_probs()
 
         # compute state to state probabilities
         p_s_s = (self.p_s_sa * pi_a_s.T).sum(2)
@@ -206,7 +212,10 @@ class FrozenLakeEnv(AbstractGridEnv):
 
         return hindsight
 
-    def compute_hinsight_probabilities_analytically(self, pi_a_s):
+    def compute_hindsight_probabilities_analytically(self, pi_a_s):
+        #compute transition probs
+        self.compute_transition_probs()
+
         A = np.zeros((self.n_states, self.n_states), dtype='float32')
         b = np.zeros((self.n_states,), dtype='float32')
         b[15] = 1
@@ -219,7 +228,7 @@ class FrozenLakeEnv(AbstractGridEnv):
                     morphed_a = (a + a_delta) % self.n_actions
                     sprime = self.transitions[s, morphed_a]
                     A[s, sprime] -= pi_a_s[a, s] * p_sprime_sa
-        self.pt_z_s = np.linalg.solve(A, b)
+        self.pt_z_s = np.linalg.solve(A, b) 
 
         self.pt_z_sa = np.zeros((self.n_states, self.n_actions), dtype='float32')
         for s in range(self.n_states):
@@ -231,39 +240,49 @@ class FrozenLakeEnv(AbstractGridEnv):
                     self.pt_z_sa[s, a] += p * self.pt_z_s[self.transitions[s, morphed_a]]
         self.pt_z_sa[15, :] = 1
 
-    def get_state_value(self, states, ts):
+    def get_state_value(self, states, ts=None):
         if self.pt_z_s is None:
             raise Exception(f"Initialize with `initialize_hindsight` method first!")
 
-        states, ts = (np.array(l, dtype='int') for l in (states, ts))
-        values = self.pt_z_s[ts, states]
-
+        if len(self.pt_z_s.shape) == 1:
+            values = self.pt_z_s[states]
+        else:
+            states, ts = (np.array(l, dtype='int') for l in (states, ts))
+            values = self.pt_z_s[ts, states]
         return values
 
-    def get_state_all_values(self, ts):
+    def get_state_all_values(self, ts=None):
         if self.pt_z_s is None:
             raise Exception(f"Initialize with `initialize_hindsight` method first!")
-
-        ts = np.array(ts)
-        values = self.pt_z_s[ts, :]
+        if len(self.pt_z_s.shape) == 1:
+            values = self.pt_z_s
+        else:
+            ts = np.array(ts)
+            values = self.pt_z_s[ts, :]
 
         return values
 
-    def get_state_action_value(self, states, actions, ts):
+    def get_state_action_value(self, states, actions, ts=None):
         if self.pt_z_sa is None:
             raise Exception(f"Initialize with `initialize_hindsight` method first!")
 
-        states, actions, ts = (np.array(l, dtype='int') for l in (states, actions, ts))
-        values = self.pt_z_sa[ts, states, actions]
+        if len(self.pt_z_sa.shape) == 2:
+            values = self.pt_z_sa[states, actions]
+        else:
+            states, actions, ts = (np.array(l, dtype='int') for l in (states, actions, ts))
+            values = self.pt_z_sa[ts, states, actions]
 
         return values
     
-    def get_state_all_action_values(self, states, ts):
+    def get_state_all_action_values(self, states, ts=None):
         if self.pt_z_sa is None:
             raise Exception(f"Initialize with `initialize_hindsight` method first!")
-    
-        states, ts = (np.array(l, dtype='int') for l in (states, ts))
-        values = self.pt_z_sa[ts, states, :]
+        
+        if len(self.pt_z_sa.shape) == 2:
+            values = self.pt_z_sa[states, :]
+        else:
+            states, ts = (np.array(l, dtype='int') for l in (states, ts))
+            values = self.pt_z_sa[ts, states, :]
 
         return values
     

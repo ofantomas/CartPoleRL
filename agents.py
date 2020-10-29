@@ -704,3 +704,46 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
         loss, cats, mean_var = self.make_pg_step(states, actions, adv)
 
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean() 
+
+
+class AnalyticalValueBaselineAgent(ReinforceAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+                 env, episode_length):
+        super().__init__(env_shape, alpha, gamma)
+        self.env = env
+        self.episode_length = episode_length
+
+    # Compute value-baseline advantage values, and update the value function
+    def compute_advantage(self, states, cum_rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        #self.env.initialize_hindsight(self.episode_length, pi_a_s)
+        self.env.compute_hindsight_probabilities_analytically(pi_a_s)
+
+        # here we assume that data is sequential and begins with the start of the episode
+        #extended_done_ids = np.flatnonzero([True] + dones)
+        #ts = []
+        #for i in range(len(extended_done_ids) - 1):
+        #    ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
+
+        vals = self.env.get_state_value(states=states)
+        vals = torch.FloatTensor(vals)
+        advantage = cum_rewards - vals
+        return advantage
+
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Subtract value baseline
+        adv = self.compute_advantage(states, cum_rewards, dones)
+
+        # Update the policy
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
