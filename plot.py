@@ -14,7 +14,7 @@ DIV_LINE_WIDTH = 50
 exp_idx = 0
 units = dict()
 
-def plot_data(data, xaxis='Epoch', value="AverageEpRet", condition="Condition1", smooth=1, **kwargs):
+def plot_data(data, xaxis='Epoch', value="AverageEpRet", condition="Condition1", smooth=1, smoothing_mode='full', **kwargs):
     if smooth > 1:
         """
         smooth data with moving window average.
@@ -26,7 +26,12 @@ def plot_data(data, xaxis='Epoch', value="AverageEpRet", condition="Condition1",
         for datum in data:
             x = np.asarray(datum[value])
             z = np.ones(len(x))
-            smoothed_x = np.convolve(x,y,'same') / np.convolve(z,y,'same')
+            if smoothing_mode == 'full':
+                smoothed_x = np.convolve(x,y,'full')[:1 - smooth] / np.convolve(z,y,'full')[:1 - smooth]
+            elif smoothing_mode == 'same':
+                smoothed_x = np.convolve(x,y,'same') / np.convolve(z,y,'same')
+            else:
+                raise AttributeError("Smoothing {:s} is not supported")
             datum[value] = smoothed_x
 
     if isinstance(data, list):
@@ -149,14 +154,15 @@ def get_all_datasets(all_logdirs, legend=None, select=None, exclude=None):
 
 
 def make_plots(all_logdirs, legend=None, xaxis=None, values=None, count=False,  
-               font_scale=1.5, smooth=1, select=None, exclude=None, estimator='mean'):
+               font_scale=1.5, smooth=1, smoothing_mode='same', select=None,
+               exclude=None, estimator='mean'):
     data = get_all_datasets(all_logdirs, legend, select, exclude)
     values = values if isinstance(values, list) else [values]
     condition = 'Condition2' if count else 'Condition1'
     estimator = getattr(np, estimator)      # choose what to show on main curve: mean? max? min?
     for value in values:
         plt.figure()
-        plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, estimator=estimator)
+        plot_data(data, xaxis=xaxis, value=value, condition=condition, smooth=smooth, smoothing_mode=smoothing_mode, estimator=estimator)
     plt.show()
 
 
@@ -169,6 +175,7 @@ def main():
     parser.add_argument('--value', '-y', default='Performance', nargs='*')
     parser.add_argument('--count', action='store_true')
     parser.add_argument('--smooth', '-s', type=int, default=1)
+    parser.add_argument('--smoothing_mode', '-sm', default='same')
     parser.add_argument('--select', nargs='*')
     parser.add_argument('--exclude', nargs='*')
     parser.add_argument('--est', default='mean')
@@ -208,6 +215,7 @@ def main():
             separately, use the ``--count`` flag.
         smooth (int): Smooth data by averaging it over a fixed window. This 
             parameter says how wide the averaging window will be.
+        smoothing_mode (string): Which convolution mode yo use for smoothing.
         select (strings): Optional selection rule: the plotter will only show
             curves from logdirs that contain all of these substrings.
         exclude (strings): Optional exclusion rule: plotter will only show 
@@ -215,8 +223,8 @@ def main():
     """
 
     make_plots(args.logdir, args.legend, args.xaxis, args.value, args.count, 
-               smooth=args.smooth, select=args.select, exclude=args.exclude,
-               estimator=args.est)
+               smooth=args.smooth, smoothing_mode=args.smoothing_mode,
+               select=args.select, exclude=args.exclude, estimator=args.est)
 
 if __name__ == "__main__":
     main()
