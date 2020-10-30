@@ -676,11 +676,6 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
         expectation_states = (transition_probs * self.value.unsqueeze(1)).sum(dim=0).squeeze()
         future_expectation_states = self.accumulate(torch.cat((expectation_states[1:], torch.FloatTensor([0]))))
 
-        #v_s = self.env.get_state_value(states=states, ts=ts)
-        #v_s = torch.FloatTensor(v_s)
-        # Compute sum of future V functions 
-        #v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
-
         # Compute sum of future Q functions 
         advantage = cum_rewards - q_s_a - v_s + future_expectation_states
         return advantage
@@ -706,7 +701,7 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
         return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean() 
 
 
-class AnalyticalValueBaselineAgent(ReinforceAgent):
+class AnalyticalValueBaselineAgent(PerfectValueBaselineAgent):
     def __init__(self, env_shape: tuple, alpha: float, gamma: float,
                  env, episode_length):
         super().__init__(env_shape, alpha, gamma)
@@ -718,32 +713,96 @@ class AnalyticalValueBaselineAgent(ReinforceAgent):
         pi_a_s = torch.softmax(self.pi, 1)
         pi_a_s = pi_a_s.detach().numpy().T
 
-        #self.env.initialize_hindsight(self.episode_length, pi_a_s)
         self.env.compute_hindsight_probabilities_analytically(pi_a_s)
-
-        # here we assume that data is sequential and begins with the start of the episode
-        #extended_done_ids = np.flatnonzero([True] + dones)
-        #ts = []
-        #for i in range(len(extended_done_ids) - 1):
-        #    ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
 
         vals = self.env.get_state_value(states=states)
         vals = torch.FloatTensor(vals)
         advantage = cum_rewards - vals
         return advantage
 
-    def update(self, states, actions, rewards, next_states, dones):
-        states = torch.LongTensor(states)
-        actions = torch.LongTensor(actions)
-        rewards = np.asarray(rewards)
 
-        # First compute cumulative rewards
-        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+class AnalyticalActionStateBaselineAgent(PerfectActionStateBaselineAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+                 env, episode_length):
+        super().__init__(env_shape, alpha, gamma, env, episode_length)
 
-        # Subtract value baseline
-        adv = self.compute_advantage(states, cum_rewards, dones)
+    # Compute value-baseline advantage values, and update the value function
+    def compute_advantage(self, states, actions, cum_rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
 
-        # Update the policy
-        loss, cats, mean_var = self.make_pg_step(states, actions, adv)
+        self.env.compute_hindsight_probabilities_analytically(pi_a_s)
 
-        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
+        q_s = self.env.get_state_all_action_values(states=states)
+        q_s = torch.FloatTensor(q_s)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
+        expectation = (policy.probs * q_s).sum(dim=1).squeeze()
+
+        q_a_s = self.env.get_state_action_value(states=states, actions=actions)
+        q_a_s = torch.FloatTensor(q_a_s)
+        advantage = cum_rewards - q_a_s
+        return advantage, expectation
+
+
+class AnalyticalTrajectoryCVAgent(PerfectTrajectoryCVAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+                 env, episode_length):
+        super().__init__(env_shape, alpha, gamma, env, episode_length)
+
+    # Compute value-baseline advantage values, and update the value function
+    def compute_advantage(self, states, actions, cum_rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        self.env.compute_hindsight_probabilities_analytically(pi_a_s)
+
+        q_s = self.env.get_state_all_action_values(states=states)
+        q_s = torch.FloatTensor(q_s)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
+        expectation = (policy.probs * q_s).sum(dim=1).squeeze()
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+
+        q_a_s = self.env.get_state_action_value(states=states, actions=actions)
+        q_a_s = torch.FloatTensor(q_a_s)
+        # Compute sum of future Q functions 
+        q_a_s = self.accumulate(q_a_s)
+        advantage = cum_rewards - q_a_s + future_expectation
+        return advantage, expectation
+
+
+class AnalyticalDynamicsTrajCVAgent(PerfectDynamicsTrajCVAgent):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+                 env, episode_length):
+        super().__init__(env_shape, alpha, gamma, env, episode_length)
+
+    def compute_advantage(self, states, actions, cum_rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        self.env.compute_hindsight_probabilities_analytically(pi_a_s)
+        # Compute Value functions in next states
+        
+        q_s = self.env.get_state_all_action_values(states=states)
+        q_s = torch.FloatTensor(q_s)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
+        expectation = (policy.probs * q_s).sum(dim=1).squeeze()
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+
+        v_all_s = self.env.get_state_all_values().T
+        v_all_s = torch.FloatTensor(v_all_s)
+        transition_probs = self.env.get_transition_probs(states=states, actions=actions)
+        transition_probs = torch.FloatTensor(transition_probs)
+        expectation_states = (transition_probs * v_all_s.unsqueeze(1)).sum(dim=0).squeeze()
+        future_expectation_states = self.accumulate(torch.cat((expectation_states[1:], torch.FloatTensor([0]))))
+
+        v_s = self.env.get_state_value(states=states)
+        v_s = torch.FloatTensor(v_s)
+        # Compute sum of future V functions 
+        v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
+
+        q_a_s = self.env.get_state_action_value(states=states, actions=actions)
+        q_a_s = torch.FloatTensor(q_a_s)
+        # Compute sum of future Q functions 
+        q_a_s = self.accumulate(q_a_s)
+        advantage = cum_rewards - q_a_s - v_s + future_expectation + future_expectation_states
+        return advantage, expectation    

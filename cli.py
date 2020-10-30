@@ -7,9 +7,9 @@ import click
 
 from agents import ReinforceAgent, RandomAgent, \
                    ValueBaselineAgent, PerfectValueBaselineAgent, AnalyticalValueBaselineAgent,\
-                   OptimalStateBaselineAgent, ActionStateBaselineAgent,\
-                   PerfectActionStateBaselineAgent, TrajectoryCVAgent, \
-                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent, \
+                   OptimalStateBaselineAgent, ActionStateBaselineAgent, AnalyticalActionStateBaselineAgent,\
+                   PerfectActionStateBaselineAgent, TrajectoryCVAgent, AnalyticalTrajectoryCVAgent,\
+                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent, AnalyticalDynamicsTrajCVAgent,\
                    DynamicsTrajCVAgent, PerfectDynamicsEstQVTrajCVAgent
     
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
@@ -64,10 +64,13 @@ AGENT_CONSTRUCTORS = {
     "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
     "state_action_baseline": ignore_extra_args(ActionStateBaselineAgent),
     "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),
+    "analytical_state_action_baseline": ignore_extra_args(AnalyticalActionStateBaselineAgent),
     "traj_cv": ignore_extra_args(TrajectoryCVAgent),
     "perfect_traj_cv": ignore_extra_args(PerfectTrajectoryCVAgent),
-    "perfect_dynamics_traj_cv": ignore_extra_args(PerfectDynamicsTrajCVAgent),
+    "analytical_traj_cv": ignore_extra_args(AnalyticalTrajectoryCVAgent),
     "dynamics_traj_cv": ignore_extra_args(DynamicsTrajCVAgent),
+    "perfect_dynamics_traj_cv": ignore_extra_args(PerfectDynamicsTrajCVAgent),
+    "analytical_dynamics_traj_cv": ignore_extra_args(AnalyticalDynamicsTrajCVAgent),
     "perfect_dynamics_est_QV_traj_cv": ignore_extra_args(PerfectDynamicsEstQVTrajCVAgent),
     "random": ignore_extra_args(RandomAgent)
 }
