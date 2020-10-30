@@ -40,7 +40,7 @@ ENV_CONSTRUCTORS = {
     "delayed_100step": lambda: DelayedEffectEnv(98),
     "delayed_100step_noisy": lambda: DelayedEffectEnv(98, 0.1),
     "ambiguous_hca": lambda: AmbiguousBanditEnv(),
-    "frozenlake": lambda: FrozenLakeEnv(),
+    "frozenlake": lambda slip_rate: FrozenLakeEnv(slip_rate),
     "counterexample_bandit": lambda: CounterexampleBanditEnv(),
     "counterexample_bandit_2": lambda: CounterexampleBandit2Env()
 }
@@ -84,6 +84,7 @@ def cli():
 @cli.command()
 @click.option("--model_type", type=click.Choice(AGENT_CONSTRUCTORS.keys()), required=True)
 @click.option("--env_type", type=click.Choice(ENV_CONSTRUCTORS.keys()), required=True)
+@click.option("--env_slip_rate", type=float, default=0.1)
 @click.option("--episodes", type=int, required=True)
 @click.option("--epi_length", type=int, required=True)
 @click.option("--eps_per_train", type=int, default=1)
@@ -99,6 +100,7 @@ def cli():
 def run(
     model_type,
     env_type,
+    env_slip_rate,
     episodes,
     epi_length,
     eps_per_train,
@@ -136,7 +138,10 @@ def run(
         if env_type not in ENV_CONSTRUCTORS:
             raise Exception("ENV NOT IMPLEMENTED")
         else:
-            env = ENV_CONSTRUCTORS[env_type]()
+            if env_type == "frozenlake":
+                env = ENV_CONSTRUCTORS[env_type](env_slip_rate)
+            else:
+                env = ENV_CONSTRUCTORS[env_type]()
 
         env_shape = env.transitions.shape
 

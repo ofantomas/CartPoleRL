@@ -88,7 +88,7 @@ class AbstractGridEnv(AbstractTabEnv):
 
 # Classic tabular MDP, consists of a 4x4 grid with "holes" that end the episode in failure and stochastic transitions
 class FrozenLakeEnv(AbstractGridEnv):
-    def __init__(self):
+    def __init__(self, slip_rate=0.1):
         super().__init__(16, 4, 0)
         # distribution P(a|s, Z=1) of size episode_len x n_actions x n_states
         self.pt_a_sz_success = None
@@ -102,6 +102,9 @@ class FrozenLakeEnv(AbstractGridEnv):
         self.p_s_sa = None
         # state visitation distribution of size n_states
         self.ds = None
+        #slip rate
+        assert (slip_rate < 0.5) and (slip_rate > 0.1), "Slip rate must be between 0.1 and 0.5!"
+        self.slip_rate = slip_rate
 
     def init_maps(self):
         self.state_map = np.array(
@@ -123,10 +126,10 @@ class FrozenLakeEnv(AbstractGridEnv):
     def step(self, act):
         rnd = random.random()
         # 10% chance of action proceeding the one selected
-        if rnd < 0.1:
+        if rnd < self.slip_rate:
             act = (act - 1) % 4
         # Another 10% chance of the action following the one selected
-        elif rnd < 0.2:
+        elif rnd < 2 * self.slip_rate:
             act = (act + 1) % 4
 
         return super().step(act)
@@ -139,11 +142,11 @@ class FrozenLakeEnv(AbstractGridEnv):
             for a in range(self.n_actions):
                 # according to policy
                 next_s = self.transitions[s, a]
-                self.p_s_sa[next_s, s, a] += 0.8
+                self.p_s_sa[next_s, s, a] += 1 - 2 * self.slip_rate
                 for shift in (-1, 1):
                     changed_a = (a + shift) % 4
                     next_s = self.transitions[s, changed_a]
-                    self.p_s_sa[next_s, s, a] += 0.1
+                    self.p_s_sa[next_s, s, a] += self.slip_rate
 
             # recalculate for terminal states
             if s in self.done_states:
@@ -224,7 +227,7 @@ class FrozenLakeEnv(AbstractGridEnv):
             if s in self.done_states:
                 continue
             for a in range(self.n_actions):
-                for a_delta, p_sprime_sa in zip((-1, 0, 1), (0.1, 0.8, 0.1)):
+                for a_delta, p_sprime_sa in zip((-1, 0, 1), (self.slip_rate, 1 - 2 * self.slip_rate, self.slip_rate)):
                     morphed_a = (a + a_delta) % self.n_actions
                     sprime = self.transitions[s, morphed_a]
                     A[s, sprime] -= pi_a_s[a, s] * p_sprime_sa
@@ -235,7 +238,7 @@ class FrozenLakeEnv(AbstractGridEnv):
             if s in self.done_states:
                 continue
             for a in range(self.n_actions):
-                for a_delta, p in zip((-1, 0, 1), (0.1, 0.8, 0.1)):
+                for a_delta, p in zip((-1, 0, 1), (self.slip_rate, 1 - 2 * self.slip_rate, self.slip_rate)):
                     morphed_a = (a + a_delta) % self.n_actions
                     self.pt_z_sa[s, a] += p * self.pt_z_s[self.transitions[s, morphed_a]]
         self.pt_z_sa[15, :] = 1
