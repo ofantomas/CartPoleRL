@@ -323,7 +323,7 @@ class ActionStateBaselineAgent(ReinforceAgent):
     # Unlike other methods, the policy target here is the Q-value directly
     def update_q_values(self, states, actions, cum_rewards):
         # Subtract Q baseline
-        qs = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
+        qs = self.Q[states, actions].squeeze()
         q_loss = (cum_rewards - qs) ** 2 / 2
 
         # Compute manual value loss
@@ -353,7 +353,7 @@ class ActionStateBaselineAgent(ReinforceAgent):
     # Compute value-baseline advantage values, and update the value function
     def compute_advantage(self, states, actions, cum_rewards):
         # Subtract action-state baseline and add expectation over actions to keep the estimate unbiased
-        q_a_s = torch.gather(self.Q[states], 1, actions.unsqueeze(1)).squeeze()
+        q_a_s = self.Q[states, actions].squeeze()
         advantage = cum_rewards - q_a_s.detach()
         return advantage 
 

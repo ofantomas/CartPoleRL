@@ -103,7 +103,7 @@ class FrozenLakeEnv(AbstractGridEnv):
         # state visitation distribution of size n_states
         self.ds = None
         #slip rate
-        assert (slip_rate < 0.5) and (slip_rate > 0.1), "Slip rate must be between 0.1 and 0.5!"
+        assert (slip_rate < 0.5) and (slip_rate >= 0.0), "Slip rate must be between in [0, 0.5)"
         self.slip_rate = slip_rate
 
     def init_maps(self):
