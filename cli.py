@@ -6,10 +6,10 @@ import click
 #from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
-                   ValueBaselineAgent, PerfectValueBaselineAgent, AnalyticalValueBaselineAgent,\
-                   OptimalStateBaselineAgent, ActionStateBaselineAgent, AnalyticalActionStateBaselineAgent,\
-                   PerfectActionStateBaselineAgent, TrajectoryCVAgent, AnalyticalTrajectoryCVAgent,\
-                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent, AnalyticalDynamicsTrajCVAgent,\
+                   ValueBaselineAgent, PerfectValueBaselineAgent,\
+                   OptimalStateBaselineAgent, ActionStateBaselineAgent,\
+                   PerfectActionStateBaselineAgent, TrajectoryCVAgent,\
+                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent,\
                    DynamicsTrajCVAgent, PerfectDynamicsEstQVTrajCVAgent
     
 from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
@@ -60,17 +60,13 @@ AGENT_CONSTRUCTORS = {
     "reinforce": ignore_extra_args(ReinforceAgent),
     "value_baseline": ignore_extra_args(ValueBaselineAgent),
     "perfect_value_baseline": ignore_extra_args(PerfectValueBaselineAgent),
-    "analytical_value_baseline": ignore_extra_args(AnalyticalValueBaselineAgent),
     "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
     "state_action_baseline": ignore_extra_args(ActionStateBaselineAgent),
     "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),
-    "analytical_state_action_baseline": ignore_extra_args(AnalyticalActionStateBaselineAgent),
     "traj_cv": ignore_extra_args(TrajectoryCVAgent),
     "perfect_traj_cv": ignore_extra_args(PerfectTrajectoryCVAgent),
-    "analytical_traj_cv": ignore_extra_args(AnalyticalTrajectoryCVAgent),
     "dynamics_traj_cv": ignore_extra_args(DynamicsTrajCVAgent),
     "perfect_dynamics_traj_cv": ignore_extra_args(PerfectDynamicsTrajCVAgent),
-    "analytical_dynamics_traj_cv": ignore_extra_args(AnalyticalDynamicsTrajCVAgent),
     "perfect_dynamics_est_QV_traj_cv": ignore_extra_args(PerfectDynamicsEstQVTrajCVAgent),
     "random": ignore_extra_args(RandomAgent)
 }
@@ -96,7 +92,7 @@ def cli():
 @click.option("--project", type=str, default=None)
 @click.option("--log_folder", type=str, default=None)
 @click.option("--exp_name", type=str, default='experiment')
-@click.option("--h_analytical", type=bool, default=False)
+@click.option("--analytical", type=bool, default=False)
 def run(
     model_type,
     env_type,
@@ -112,7 +108,7 @@ def run(
     project,
     log_folder,
     exp_name,
-    h_analytical,
+    analytical,
 ):
     for _ in range(run_n_times):
         config = {
@@ -125,7 +121,7 @@ def run(
             'gamma': gamma,
             'eps_per_train': eps_per_train,
             #'git_sha': get_current_sha(),
-            'h_analytical': h_analytical,
+            'analytical': analytical,
             'exp_name': exp_name,
         }
         logger_manager = LoggingManager()
@@ -153,9 +149,8 @@ def run(
                                                    alpha=alpha,
                                                    beta=beta,
                                                    gamma=gamma,
-                                                   possible_rs=env.possible_r_values,
                                                    episode_length=epi_length,
-                                                   h_analytical=h_analytical)
+                                                   analytical=analytical)
 
         train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, logger=logger_manager,)
 

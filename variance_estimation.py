@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import special
 import torch
 from envs import FrozenLakeEnv
 
@@ -139,3 +140,24 @@ def estimate_pg_variance(env, agent, policy, ep_length, n_episodes=10000):
     env.initialize_hindsight = env_initialize_hindsight
 
     return pi_grads
+
+def estimate_grad_update(env, agent, grad, lr, ep_length):
+    new_pi = agent.pi.detach().numpy() - grad * lr
+    pi_a_s = special.softmax(new_pi, 1).T
+    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s, ep_length=ep_length)
+    return value
+
+
+def estimate_agent_analytically(env, agent, ep_length, inference=False):
+    pi_a_s = special.softmax(agent.pi.detach().numpy(), 1).T
+    if inference:  # make deterministic
+        dim_a = pi_a_s.shape[0]
+        pi_a_s = np.eye(dim_a)[np.argmax(pi_a_s, 0)].T
+    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s, ep_length=ep_length)
+    return value
+
+
+def estimate_policy_analytically(env, pi_a_s, ep_length):
+    env.initialize_hindsight(ep_length, pi_a_s)
+    value = env.get_state_value([0], [0])[0]
+    return value

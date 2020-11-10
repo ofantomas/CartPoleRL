@@ -105,6 +105,8 @@ class FrozenLakeEnv(AbstractGridEnv):
         #slip rate
         assert (slip_rate < 0.5) and (slip_rate >= 0.0), "Slip rate must be between in [0, 0.5)"
         self.slip_rate = slip_rate
+        # compute transition probabilities
+        self.compute_transition_probs()
 
     def init_maps(self):
         self.state_map = np.array(
@@ -155,9 +157,6 @@ class FrozenLakeEnv(AbstractGridEnv):
 
     
     def initialize_hindsight(self, episode_length, pi_a_s):
-        # compute transition probabilities
-        self.compute_transition_probs()
-
         # compute state to state probabilities
         p_s_s = (self.p_s_sa * pi_a_s.T).sum(2)
 
@@ -204,7 +203,7 @@ class FrozenLakeEnv(AbstractGridEnv):
 
     def get_hindsight_probability(self, states, actions, ts, successes):
         if self.pt_a_sz_success is None:
-            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+            raise Exception("Initialize with `initialize_hindsight` method first!")
 
         states, actions, ts = (np.array(l, dtype='int') for l in (states, actions, ts))
         successes = np.array(successes, dtype='bool')
@@ -216,9 +215,6 @@ class FrozenLakeEnv(AbstractGridEnv):
         return hindsight
 
     def compute_hindsight_probabilities_analytically(self, pi_a_s):
-        #compute transition probs
-        self.compute_transition_probs()
-
         A = np.zeros((self.n_states, self.n_states), dtype='float32')
         b = np.zeros((self.n_states,), dtype='float32')
         b[15] = 1
@@ -291,7 +287,7 @@ class FrozenLakeEnv(AbstractGridEnv):
     
     def get_transition_probs(self, states, actions):
         if self.p_s_sa is None:
-            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+            raise Exception(f"Initialize with `compute_transition_probs` method first!")
 
         states, actions = ((np.array(l, dtype='int') for l in (states, actions)))
         transition_probs = self.p_s_sa[:, states, actions]
