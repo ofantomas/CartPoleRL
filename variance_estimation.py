@@ -148,16 +148,19 @@ def estimate_grad_update(env, agent, grad, lr, ep_length):
     return value
 
 
-def estimate_agent_analytically(env, agent, ep_length, inference=False):
+def estimate_agent_analytically(env, agent, ep_length, inference=False, analytical=False):
     pi_a_s = special.softmax(agent.pi.detach().numpy(), 1).T
     if inference:  # make deterministic
         dim_a = pi_a_s.shape[0]
         pi_a_s = np.eye(dim_a)[np.argmax(pi_a_s, 0)].T
-    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s, ep_length=ep_length)
+    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s, ep_length=ep_length, analytical=analytical)
     return value
 
 
-def estimate_policy_analytically(env, pi_a_s, ep_length):
-    env.initialize_hindsight(ep_length, pi_a_s)
+def estimate_policy_analytically(env, pi_a_s, ep_length, analytical):
+    if analytical is True:
+        env.compute_hindsight_probabilities_analytically(pi_a_s)
+    else:
+        env.initialize_hindsight(ep_length, pi_a_s)
     value = env.get_state_value([0], [0])[0]
     return value

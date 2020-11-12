@@ -93,6 +93,7 @@ def cli():
 @click.option("--log_folder", type=str, default=None)
 @click.option("--exp_name", type=str, default='experiment')
 @click.option("--analytical", type=bool, default=False)
+@click.option("--estimate_policy", type=bool, default=False)
 def run(
     model_type,
     env_type,
@@ -109,6 +110,7 @@ def run(
     log_folder,
     exp_name,
     analytical,
+    estimate_policy
 ):
     for _ in range(run_n_times):
         config = {
@@ -152,7 +154,8 @@ def run(
                                                    episode_length=epi_length,
                                                    analytical=analytical)
 
-        train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq, logger=logger_manager,)
+        train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq,
+              logger=logger_manager, estimate_policy=estimate_policy, analytical=analytical)
 
 
 if __name__ == "__main__":

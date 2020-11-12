@@ -323,17 +323,15 @@ class ActionStateBaselineAgent(ReinforceAgent):
         return q_loss
 
     def compute_eligibility(self, states, actions, advantage, expectation):
-        logits = self.pi[states]
-        policy = torch.distributions.Categorical(logits=logits)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
         #compute expecation over action~pi of grad_log_pi(a|s) * Q(a, s)
         log_probs = policy.log_prob(actions)
-        loss = - log_probs * advantage.detach() - expectation
+        loss = -log_probs * advantage.detach() - expectation
         return loss, policy
 
     # Compute value-baseline advantage values, and update the value function
     def compute_advantage(self, states, actions, cum_rewards, dones):
-        logits = self.pi[states]
-        policy = torch.distributions.Categorical(logits=logits)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
         expectation = (policy.probs * self.Q[states]).sum(dim=1).squeeze()
         q_a_s = self.Q[states, actions].squeeze()
         # Subtract action-state baseline and add
@@ -434,27 +432,19 @@ class TrajectoryCVAgent(ActionStateBaselineAgent):
     def accumulate(self, values):
         return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
 
-    def compute_eligibility(self, states, actions, advantage, expectation):
-        logits = self.pi[states]
-        policy = torch.distributions.Categorical(logits=logits)
-        log_probs = policy.log_prob(actions)
-
-        #Compute expectations of future Q functions to make estimate unbiased
-        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
-        loss = - log_probs * (advantage + future_expectation).detach() - expectation
-
-        return loss, policy
-
     # Compute value-baseline advantage values, and update the value function
     def compute_advantage(self, states, actions, cum_rewards, dones):
         # Subtract action-state baseline and add
         # expectation over actions to keep the estimate unbiased
         policy = torch.distributions.Categorical(logits=self.pi[states])
-        q_a_s = self.Q[states, actions]
         expectation = (policy.probs * self.Q[states]).sum(dim=1).squeeze()
+        #Compute expectations of future Q functions to make estimate unbiased
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
         # Compute sum of future Q functions
+        q_a_s = self.Q[states, actions].squeeze()
         q_a_s = self.accumulate(q_a_s)
-        advantage = cum_rewards - q_a_s
+
+        advantage = cum_rewards - q_a_s + future_expectation
         return advantage, expectation
 
 class PerfectTrajectoryCVAgent(TrajectoryCVAgent):
@@ -501,10 +491,11 @@ class PerfectTrajectoryCVAgent(TrajectoryCVAgent):
 
         policy = torch.distributions.Categorical(logits=self.pi[states])
         expectation = (policy.probs * q_s).sum(dim=1).squeeze()
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
 
         # Compute sum of future Q functions
         q_a_s = self.accumulate(q_a_s)
-        advantage = cum_rewards - q_a_s
+        advantage = cum_rewards - q_a_s + future_expectation
         return advantage, expectation
 
 
@@ -543,19 +534,24 @@ class DynamicsTrajCVAgent(TrajectoryCVAgent):
         transition_probs = transition_probs / (transition_probs.sum(dim=0) + 1e-8)
         return transition_probs
 
-    def update_transition_probs(self, states, next_states, actions):
-        self.p_s_sa[next_states, states, actions] += 1
-        #for next_state, state, action in zip(next_states, states, actions):
-        #    self.p_s_sa[next_state, state, action] += 1
+    #def update_transition_probs(self, states, next_states, actions):
+    #    self.p_s_sa[next_states, states, actions] += 1
+
+    def update_transition_probs(self, states, actions):
+        self.p_s_sa[states[1:], states[:-1], actions[:-1]] += 1
 
     def compute_advantage(self, states, actions, cum_rewards, dones):
         # Subtract action-state baseline and add
         # expectation over actions to keep the estimate unbiased
         policy = torch.distributions.Categorical(logits=self.pi[states])
         expectation = (policy.probs * self.Q[states]).sum(dim=1).squeeze()
-        q_a_s = self.Q[states, actions]
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+
+        # Get Q, V functions for episode
         v_s = self.value[states]
-        # Compute sum of future Q functions
+        q_a_s = self.Q[states, actions].squeeze()
+
+        # Compute sum of future Q, V functions
         v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
         q_a_s = self.accumulate(q_a_s)
 
@@ -564,7 +560,7 @@ class DynamicsTrajCVAgent(TrajectoryCVAgent):
         future_expectation_states = self.accumulate(torch.cat((expectation_states[1:],
                                                                torch.FloatTensor([0]))))
 
-        advantage = cum_rewards - q_a_s - v_s + future_expectation_states
+        advantage = cum_rewards - q_a_s - v_s + future_expectation_states + future_expectation
         return advantage, expectation
 
     def update(self, states, actions, rewards, next_states, dones):
@@ -580,7 +576,8 @@ class DynamicsTrajCVAgent(TrajectoryCVAgent):
         _ = self.update_q_values(states, actions, cum_rewards)
 
         #Update transition probs
-        self.update_transition_probs(states, next_states, actions)
+        #self.update_transition_probs(states, next_states, actions)
+        self.update_transition_probs(states, actions)
 
         #Get targets
         adv, expectation = self.compute_advantage(states, actions, cum_rewards, dones)
@@ -622,7 +619,7 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
             q_s = torch.FloatTensor(self.env.get_state_all_action_values(states=states))
             q_a_s = torch.FloatTensor(self.env.get_state_action_value(states=states,
                                                                       actions=actions))
-            v_all_s = torch.FloatTensor(self.env.get_state_all_values().T).unsqueeze(1)
+            v_all_s = torch.FloatTensor(self.env.get_state_all_values()).unsqueeze(dim=1)
             v_s = torch.FloatTensor(self.env.get_state_value(states=states))
         else:
             self.env.initialize_hindsight(self.episode_length, pi_a_s)
@@ -642,20 +639,21 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
         transition_probs = torch.FloatTensor(self.env.get_transition_probs(states=states,
                                                                            actions=actions))
         # Compute Value functions in next states
-
+        dones = torch.FloatTensor(dones)
         policy = torch.distributions.Categorical(logits=self.pi[states])
         expectation = (policy.probs * q_s).sum(dim=1).squeeze()
-        expectation_states = (transition_probs * v_all_s).sum(dim=0).squeeze()
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+        expectation_states = (transition_probs * v_all_s * dones.unsqueeze(0)).sum(dim=0).squeeze()
         future_expectation_states = self.accumulate(torch.cat((expectation_states[1:],
                                                                torch.FloatTensor([0]))))
 
-        # Compute sum of future V functions
-        v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
-
-        # Compute sum of future Q functions
+        # Compute sum of future Q, V functions
+        v_s = self.accumulate(torch.cat((v_s[1:] * dones[1:], torch.FloatTensor([0]))))
         q_a_s = self.accumulate(q_a_s)
-        advantage = cum_rewards - q_a_s - v_s  + future_expectation_states
+
+        advantage = cum_rewards - q_a_s - v_s  + future_expectation_states + future_expectation
         return advantage, expectation
+
 
 class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
     '''
@@ -673,29 +671,62 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float,
-                 gamma: float, env, episode_length, analytical: bool):
+                 gamma: float, env):
         super().__init__(env_shape, alpha, beta, gamma)
         self.env = env
-        self.episode_length = episode_length
-        self.analytical = analytical
 
+    def update_transition_probs(self, states, next_states, actions):
+        self.p_s_sa[next_states, states, actions] += 1
+        for next_state, state, action in zip(next_states, states, actions):
+            self.p_s_sa[next_state, state, action] += 1
 
     def compute_advantage(self, states, actions, cum_rewards, dones):
         # Subtract action-state baseline and add
         # expectation over actions to keep the estimate unbiased
         policy = torch.distributions.Categorical(logits=self.pi[states])
         expectation = (policy.probs * self.Q[states]).sum(dim=1).squeeze()
-        q_a_s = self.Q[states, actions]
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+
+        dones = torch.FloatTensor(dones)
+        # Get Q, V functions for episode
         v_s = self.value[states]
-        # Compute sum of future Q functions
+        q_a_s = self.Q[states, actions].squeeze()
+
+        # Compute sum of future Q, V functions
         v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
         q_a_s = self.accumulate(q_a_s)
 
         transition_probs = torch.FloatTensor(self.env.get_transition_probs(states=states,
                                                                            actions=actions))
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+        self.env.compute_hindsight_probabilities_analytically(pi_a_s)
         expectation_states = (transition_probs * self.value.unsqueeze(dim=1)).sum(dim=0).squeeze()
         future_expectation_states = self.accumulate(torch.cat((expectation_states[1:],
                                                                torch.FloatTensor([0]))))
 
-        advantage = cum_rewards - q_a_s - v_s + future_expectation_states
+        advantage = cum_rewards - q_a_s - v_s + future_expectation_states + future_expectation
         return advantage, expectation
+
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Update V, Q values
+        _ = self.update_values(states, cum_rewards)
+        _ = self.update_q_values(states, actions, cum_rewards)
+
+        #Update transition probs
+        self.update_transition_probs(states, next_states, actions)
+
+        #Get targets
+        adv, expectation = self.compute_advantage(states, actions, cum_rewards, dones)
+
+        # Update the policy
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv, expectation)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()

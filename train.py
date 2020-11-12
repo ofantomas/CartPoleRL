@@ -2,9 +2,11 @@
 import math
 import numpy as np
 from tqdm import tqdm
+from variance_estimation import estimate_agent_analytically
 
 
-def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, logger = None):
+def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
+          logger=None, estimate_policy: bool=True, analytical: bool=False):
     states_visited = np.zeros(env.transitions.shape, int)
     episode_train_rewards = []
     episode_validation_rewards = []
@@ -60,11 +62,20 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int = 100, logg
 
         # Logging.
         if i % log_freq == 0 or i >= n_eps / eps_per_train:
-            # WandB logging
-            logger({'training_steps': i, 'episodes': i*eps_per_train, 'train_reward': total_r_train/eps_per_train,
-                          'test_reward': total_r_inference, 'policy_gradient_mean': loss_mean,
-                          'policy_gradient_var': loss_var, 'policy_entropy': entropy, 'timesteps': mean_t,
-                          'mean_advantage': mean_advantage, 'total_n_frames': total_n_frames})
+            if estimate_policy is True:
+                policy_perfomance = estimate_agent_analytically(env, agent, ep_length, analytical=analytical)
+                # WandB logging
+                logger({'training_steps': i, 'episodes': i*eps_per_train, 'train_reward': total_r_train/eps_per_train,
+                        'test_reward': total_r_inference, 'policy_gradient_mean': loss_mean,
+                        'policy_gradient_var': loss_var, 'policy_entropy': entropy, 'timesteps': mean_t,
+                        'mean_advantage': mean_advantage, 'total_n_frames': total_n_frames,
+                        'policy_perfomance': policy_perfomance})
+            else:
+                # WandB logging
+                logger({'training_steps': i, 'episodes': i*eps_per_train, 'train_reward': total_r_train/eps_per_train,
+                        'test_reward': total_r_inference, 'policy_gradient_mean': loss_mean,
+                        'policy_gradient_var': loss_var, 'policy_entropy': entropy, 'timesteps': mean_t,
+                        'mean_advantage': mean_advantage, 'total_n_frames': total_n_frames})
 
         # Aggregate.
         episode_train_rewards.append(total_r_train/eps_per_train)
