@@ -616,7 +616,9 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
             q_a_s = torch.FloatTensor(self.env.get_state_action_value(states=states,
                                                                       actions=actions))
             v_all_s = torch.FloatTensor(self.env.get_state_all_values()).unsqueeze(dim=1)
+            v_all_s[15, :] = 0
             v_s = torch.FloatTensor(self.env.get_state_value(states=next_states))
+            v_s[next_states == 15] = 0
         else:
             self.env.initialize_hindsight(self.episode_length, pi_a_s)
             # here we assume that data is sequential and begins with the start of the episode
@@ -628,7 +630,10 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
             q_a_s = torch.FloatTensor(self.env.get_state_action_value(states=states,
                                                                       actions=actions, ts=ts))
             v_all_s = torch.FloatTensor(self.env.get_state_all_values(ts=ts).T)
+            #tmp
+            v_all_s[15, :] = 0
             v_s = torch.FloatTensor(self.env.get_state_value(states=next_states, ts=ts))
+            v_s[next_states == 15] = 0
 
 
 
@@ -670,7 +675,7 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
         super().__init__(env_shape, alpha, beta, gamma)
         self.env = env
 
-    def compute_advantage(self, states, actions, cum_rewards, dones):
+    def compute_advantage(self, states, next_states, actions, cum_rewards, dones):
         # Subtract action-state baseline and add
         # expectation over actions to keep the estimate unbiased
         policy = torch.distributions.Categorical(logits=self.pi[states])
