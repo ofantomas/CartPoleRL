@@ -86,6 +86,7 @@ def cli():
 @click.option("--eps_per_train", type=int, default=1)
 @click.option("--alpha", type=float, default=0.1)
 @click.option("--beta", type=float, default=None)
+@click.option("--delta", type=float, default=None)
 @click.option("--gamma", type=float, default=0.99)
 @click.option("--run_n_times", type=int, default=1)
 @click.option("--log_freq", type=int, default=1)
@@ -103,6 +104,7 @@ def run(
     eps_per_train,
     alpha,
     beta,
+    delta,
     gamma,
     run_n_times,
     log_freq,
@@ -120,6 +122,7 @@ def run(
             'epi_length': epi_length,
             'alpha': alpha,
             'beta': beta,
+            'delta': delta,
             'gamma': gamma,
             'eps_per_train': eps_per_train,
             #'git_sha': get_current_sha(),
@@ -150,6 +153,7 @@ def run(
                                                    env_shape=env_shape,
                                                    alpha=alpha,
                                                    beta=beta,
+                                                   delta=delta,
                                                    gamma=gamma,
                                                    episode_length=epi_length,
                                                    analytical=analytical)

@@ -507,17 +507,19 @@ class DynamicsTrajCVAgent(TrajectoryCVAgent):
     Args:
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
-        beta (float): learning rate for Q, V functions,
+        beta (float): learning rate for Q function,
+        delta (float): learning rate for V function,
         gamma (float): MDP's gamma
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta:float, gamma: float):
+    def __init__(self, env_shape: tuple, alpha: float, beta:float, 
+                 delta: float, gamma: float):
         super().__init__(env_shape, alpha, beta, gamma)
 
         self.p_s_sa = torch.zeros((env_shape[0], env_shape[0], env_shape[1]),
                                   dtype=torch.float, requires_grad=False)
         self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
-        self.beta = beta
-        self.value_opt = torch.optim.SGD(params=[self.value], lr=self.beta)
+        self.delta = delta
+        self.value_opt = torch.optim.SGD(params=[self.value], lr=self.delta)
 
     def update_values(self, states, cum_rewards):
         vals = self.value[states]
@@ -592,16 +594,17 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
      Args:
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
-        beta (float): learning rate for Q, V functions,
+        beta (float): learning rate for Q function,
+        delta (float): learning rate for V function,
         gamma (float): MDP's gamma
         env: environment,
         episode_length (int): max length of the episode,
         analytical (bool): whether to compute Q, V functions
             assuming infinite episode_length
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta:float,
+    def __init__(self, env_shape: tuple, alpha: float, beta:float, delta: float,
                  gamma: float, env, episode_length, analytical: bool):
-        super().__init__(env_shape, alpha, beta, gamma)
+        super().__init__(env_shape, alpha, beta, delta, gamma)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -663,7 +666,8 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
     Args:
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
-        beta (float): learning rate for Q, V functions,
+        beta (float): learning rate for Q function,
+        delta (float): learning rate for V function,
         gamma (float): MDP's gamma
         env: environment,
         episode_length (int): max length of the episode
@@ -671,8 +675,8 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float,
-                 gamma: float, env):
-        super().__init__(env_shape, alpha, beta, gamma)
+                 delta: float, gamma: float, env):
+        super().__init__(env_shape, alpha, beta, delta, gamma)
         self.env = env
 
     def compute_advantage(self, states, next_states, actions, cum_rewards, dones):
