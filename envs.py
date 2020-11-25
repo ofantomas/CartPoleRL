@@ -79,7 +79,7 @@ class AbstractGridEnv(AbstractTabEnv):
                 self.rewards[s1] = self.reward_map[i, j]
                 for action in range(self.n_actions):
                     (i2, j2) = self.apply_action(i, j, action)
-                    i2 = max(0, min(i2, self.state_map.shape[0]-1))
+                    i2 = max(0, min(i2, self.state_map.shape[0] - 1))
                     j2 = max(0, min(j2, self.state_map.shape[1] - 1))
                     s2 = self.state_map[i2, j2]
                     self.transitions[s1, action] = s2
@@ -227,21 +227,22 @@ class FrozenLakeEnv(AbstractGridEnv):
                     morphed_a = (a + a_delta) % self.n_actions
                     sprime = self.transitions[s, morphed_a]
                     A[s, sprime] -= pi_a_s[a, s] * p_sprime_sa
-        self.pt_z_s = np.linalg.solve(A, b) 
+        self.pt_z_s = np.linalg.solve(A, b)
 
         self.pt_z_sa = np.zeros((self.n_states, self.n_actions), dtype='float32')
         for s in range(self.n_states):
             if s in self.done_states:
                 continue
             for a in range(self.n_actions):
-                for a_delta, p in zip((-1, 0, 1), (self.slip_rate, 1 - 2 * self.slip_rate, self.slip_rate)):
+                for a_delta, p in zip((-1, 0, 1),
+                                      (self.slip_rate, 1 - 2 * self.slip_rate, self.slip_rate)):
                     morphed_a = (a + a_delta) % self.n_actions
                     self.pt_z_sa[s, a] += p * self.pt_z_s[self.transitions[s, morphed_a]]
         self.pt_z_sa[15, :] = 1
 
     def get_state_value(self, states, ts=None):
         if self.pt_z_s is None:
-            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+            raise Exception("Initialize with `initialize_hindsight` method first!")
 
         if len(self.pt_z_s.shape) == 1:
             values = self.pt_z_s[states]
@@ -252,7 +253,7 @@ class FrozenLakeEnv(AbstractGridEnv):
 
     def get_state_all_values(self, ts=None):
         if self.pt_z_s is None:
-            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+            raise Exception("Initialize with `initialize_hindsight` method first!")
         if len(self.pt_z_s.shape) == 1:
             values = self.pt_z_s
         else:
@@ -263,7 +264,7 @@ class FrozenLakeEnv(AbstractGridEnv):
 
     def get_state_action_value(self, states, actions, ts=None):
         if self.pt_z_sa is None:
-            raise Exception(f"Initialize with `initialize_hindsight` method first!")
+            raise Exception("Initialize with `initialize_hindsight` method first!")
 
         if len(self.pt_z_sa.shape) == 2:
             values = self.pt_z_sa[states, actions]
@@ -272,11 +273,11 @@ class FrozenLakeEnv(AbstractGridEnv):
             values = self.pt_z_sa[ts, states, actions]
 
         return values
-    
+
     def get_state_all_action_values(self, states, ts=None):
         if self.pt_z_sa is None:
-            raise Exception(f"Initialize with `initialize_hindsight` method first!")
-        
+            raise Exception("Initialize with `initialize_hindsight` method first!")
+
         if len(self.pt_z_sa.shape) == 2:
             values = self.pt_z_sa[states, :]
         else:
@@ -284,10 +285,10 @@ class FrozenLakeEnv(AbstractGridEnv):
             values = self.pt_z_sa[ts, states, :]
 
         return values
-    
+
     def get_transition_probs(self, states, actions):
         if self.p_s_sa is None:
-            raise Exception(f"Initialize with `compute_transition_probs` method first!")
+            raise Exception("Initialize with `compute_transition_probs` method first!")
 
         states, actions = ((np.array(l, dtype='int') for l in (states, actions)))
         transition_probs = self.p_s_sa[:, states, actions]

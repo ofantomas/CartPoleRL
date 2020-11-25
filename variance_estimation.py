@@ -4,6 +4,24 @@ import torch
 from envs import FrozenLakeEnv
 
 
+OPTIMAL_POLICY = [[-1000, -1000,  -1000,  1000],
+        [ 1000, -1000,  -1000, -1000],
+        [-1000, -1000,   1000, -1000],
+        [ 1000, -1000,  -1000, -1000],
+        [-1000, -1000,  -1000,  1000],
+        [1.000, 1.000,  1.000, 1.000],
+        [-1000, -1000,   1000, -1000],
+        [1.000, 1.000,  1.000, 1.000],
+        [ 1000, -1000,  -1000, -1000],
+        [-1000, -1000,   1000, -1000],
+        [-1000, -1000,  -1000,  1000],
+        [1.000, 1.000,  1.000, 1.000],
+        [1.000, 1.000,  1.000, 1.000],
+        [-1000,  1000,  -1000, -1000],
+        [-1000, -1000,   1000, -1000],
+        [1.000, 1.000,  1.000, 1.000]]
+
+
 GOOD_POLICY = [[-1.2901, -0.8693,  6.6912, -0.5318],
         [ 0.7621, -0.4571, -1.1712,  4.8661],
         [ 0.6781,  0.4751,  1.6692,  1.1776],
@@ -20,7 +38,6 @@ GOOD_POLICY = [[-1.2901, -0.8693,  6.6912, -0.5318],
         [-1.0185,  6.6443,  0.3716, -1.9975],
         [-1.6142,  6.7572, -0.0748, -1.0683],
         [ 1.0000,  1.0000,  1.0000,  1.0000]]
-
 
 WEAK_POLICY = [[0.8338, 1.4808, 0.9949, 0.6905],
         [1.0216, 1.4151, 0.8332, 0.7301],
@@ -90,10 +107,10 @@ def rollout(env, agent, ep_length, s0=None, a0=None):
     return states, acts, rewards, next_states, dones
 
 
-def estimate_pg_variance(env, agent, policy, ep_length, n_episodes=10000):
+def estimate_pg_variance(env, agent, policy, ep_length, n_episodes=1000):
     # substitute new policy
-    agent.pi = torch.FloatTensor(np.array(policy))
-    agent.pi.requires_grad = True
+    if policy is not None:
+        agent.pi = torch.Tensor(np.array(policy), dtype=torch.float, requires_grad=True)
 
     # forbid updates in agent
     agent.pi_opt = torch.optim.SGD(params=[agent.pi], lr=agent.alpha)
@@ -141,10 +158,11 @@ def estimate_pg_variance(env, agent, policy, ep_length, n_episodes=10000):
 
     return pi_grads
 
-def estimate_grad_update(env, agent, grad, lr, ep_length):
+def estimate_grad_update(env, agent, grad, lr, ep_length, analytical=False):
     new_pi = agent.pi.detach().numpy() - grad * lr
     pi_a_s = special.softmax(new_pi, 1).T
-    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s, ep_length=ep_length)
+    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s,
+                                         ep_length=ep_length, analytical=analytical)
     return value
 
 
@@ -153,9 +171,22 @@ def estimate_agent_analytically(env, agent, ep_length, inference=False, analytic
     if inference:  # make deterministic
         dim_a = pi_a_s.shape[0]
         pi_a_s = np.eye(dim_a)[np.argmax(pi_a_s, 0)].T
-    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s, ep_length=ep_length, analytical=analytical)
+    value = estimate_policy_analytically(env=env, pi_a_s=pi_a_s,
+                                         ep_length=ep_length, analytical=analytical)
     return value
 
+def estimate_table_policy(env, pi_a_s, ep_length, analytical=True):
+    pi_a_s = special.softmax(np.array(pi_a_s), 1).T
+    dim_a = pi_a_s.shape[0]
+    pi_a_s = np.eye(dim_a)[np.argmax(pi_a_s, 0)].T
+
+    if analytical is True:
+        env.compute_hindsight_probabilities_analytically(pi_a_s)
+    else:
+        env.initialize_hindsight(ep_length, pi_a_s)
+
+    value = env.get_state_value([0], [0])[0]
+    return value
 
 def estimate_policy_analytically(env, pi_a_s, ep_length, analytical):
     if analytical is True:

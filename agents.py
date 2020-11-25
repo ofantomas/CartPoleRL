@@ -29,12 +29,16 @@ class ReinforceAgent:
         alpha (float): learning rate for policy,
         gamma (float): MDP's gamma
     '''
-    def __init__(self, env_shape: tuple, alpha: float, gamma: float):
+    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+                 total_steps: int = 0, lr_scheduler = None):
         self.alpha = alpha
         self.gamma = gamma
+        self.lr_scheduler = lr_scheduler
         self.env_shape = env_shape
         self.pi = torch.ones(self.env_shape, dtype=torch.float, requires_grad=True)
         self.pi_opt = torch.optim.SGD(params=[self.pi], lr=self.alpha)
+        if self.lr_scheduler is not None:
+            self.pi_scheduler = self.lr_scheduler(self.pi_opt, max_lr=50 * self.alpha, total_steps=total_steps)
 
     def select_action(self, state, inference):
         probs = self.pi[state].softmax(0)
@@ -78,7 +82,9 @@ class ReinforceAgent:
         mean_var = self.compute_var_per_sa_pair(states, actions, loss)
         self.pi_opt.zero_grad()
         loss.mean().backward()
-        self.pi_opt.step()  # SGD step
+        self.pi_opt.step() # SGD step
+        if self.lr_scheduler is not None:
+            self.pi_scheduler.step()
 
         return loss, policy, mean_var
 
@@ -109,8 +115,9 @@ class ValueBaselineAgent(ReinforceAgent):
         beta (float): learning rate for V function,
         gamma (float): MDP's gamma
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float):
-        super().__init__(env_shape, alpha, gamma)
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, gamma, total_steps, lr_scheduler)
         self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
         self.beta = beta
         self.value_opt = torch.optim.SGD(params=[self.value], lr=self.beta)
@@ -167,8 +174,9 @@ class PerfectValueBaselineAgent(ValueBaselineAgent):
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float,
-                 gamma: float, env, episode_length: int, analytical: bool):
-        super().__init__(env_shape, alpha, beta, gamma)
+                 gamma: float, env, episode_length: int, analytical: bool,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, gamma, total_steps, lr_scheduler)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -303,8 +311,9 @@ class ActionStateBaselineAgent(ReinforceAgent):
         beta (float): learning rate for Q function,
         gamma (float): MDP's gamma
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float):
-        super().__init__(env_shape, alpha, gamma)
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, gamma, total_steps, lr_scheduler)
 
         self.Q = torch.zeros(env_shape, dtype=torch.float, requires_grad=True)
         self.beta = beta
@@ -345,6 +354,8 @@ class ActionStateBaselineAgent(ReinforceAgent):
         self.pi_opt.zero_grad()
         loss.mean().backward()
         self.pi_opt.step()
+        if self.lr_scheduler is not None:
+            self.pi_scheduler.step()
         return loss, cats, mean_var
 
     def update(self, states, actions, rewards, next_states, dones):
@@ -381,9 +392,10 @@ class PerfectActionStateBaselineAgent(ActionStateBaselineAgent):
         analytical (bool): whether to compute Q function
             assuming infinite episode_length
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
-                 env, episode_length, analytical: bool):
-        super().__init__(env_shape, alpha, beta, gamma)
+    def __init__(self, env_shape: tuple, alpha: float, beta: float,
+                 gamma: float, env, episode_length, analytical: bool,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, gamma, total_steps, lr_scheduler)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -426,8 +438,9 @@ class TrajectoryCVAgent(ActionStateBaselineAgent):
         beta (float): learning rate for Q function,
         gamma (float): MDP's gamma
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float):
-        super().__init__(env_shape, alpha, beta, gamma)
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, gamma, total_steps, lr_scheduler)
 
     def accumulate(self, values):
         return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
@@ -463,8 +476,9 @@ class PerfectTrajectoryCVAgent(TrajectoryCVAgent):
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
-                 env, episode_length, analytical: bool):
-        super().__init__(env_shape, alpha, beta, gamma)
+                 env, episode_length, analytical: bool, 
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, gamma, total_steps, lr_scheduler)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -512,8 +526,9 @@ class DynamicsTrajCVAgent(TrajectoryCVAgent):
         gamma (float): MDP's gamma
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float, 
-                 delta: float, gamma: float):
-        super().__init__(env_shape, alpha, beta, gamma)
+                 delta: float, gamma: float, 
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, gamma, total_steps, lr_scheduler)
 
         self.p_s_sa = torch.zeros((env_shape[0], env_shape[0], env_shape[1]),
                                   dtype=torch.float, requires_grad=False)
@@ -602,9 +617,10 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
         analytical (bool): whether to compute Q, V functions
             assuming infinite episode_length
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta:float, delta: float,
-                 gamma: float, env, episode_length, analytical: bool):
-        super().__init__(env_shape, alpha, beta, delta, gamma)
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, delta: float,
+                 gamma: float, env, episode_length, analytical: bool,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, delta, gamma, total_steps, lr_scheduler)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -619,9 +635,7 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
             q_a_s = torch.FloatTensor(self.env.get_state_action_value(states=states,
                                                                       actions=actions))
             v_all_s = torch.FloatTensor(self.env.get_state_all_values()).unsqueeze(dim=1)
-            v_all_s[15, :] = 0
             v_s = torch.FloatTensor(self.env.get_state_value(states=next_states))
-            v_s[next_states == 15] = 0
         else:
             self.env.initialize_hindsight(self.episode_length, pi_a_s)
             # here we assume that data is sequential and begins with the start of the episode
@@ -633,10 +647,7 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
             q_a_s = torch.FloatTensor(self.env.get_state_action_value(states=states,
                                                                       actions=actions, ts=ts))
             v_all_s = torch.FloatTensor(self.env.get_state_all_values(ts=ts).T)
-            #tmp
-            v_all_s[15, :] = 0
             v_s = torch.FloatTensor(self.env.get_state_value(states=next_states, ts=ts))
-            v_s[next_states == 15] = 0
 
 
 
@@ -675,8 +686,9 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float,
-                 delta: float, gamma: float, env):
-        super().__init__(env_shape, alpha, beta, delta, gamma)
+                 delta: float, gamma: float, env,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, delta, gamma, total_steps, lr_scheduler)
         self.env = env
 
     def compute_advantage(self, states, next_states, actions, cum_rewards, dones):
@@ -704,4 +716,143 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
                                                                torch.FloatTensor([0]))))
 
         advantage = cum_rewards - q_a_s - v_s + future_expectation_states + future_expectation
+        return advantage, expectation
+
+
+class ModelFreeDynamicsTrajCVAgent(TrajectoryCVAgent):
+    '''
+    Implements REINFORCE algorithm with Dynamics TrajCV baseline.
+    Policy, Q function and V functions are trained with GD.
+    Transition function is estimated from rollouts.
+    Args:
+        env_shape (tuple): [num_states x num_actions],
+        alpha (float): learning rate for policy,
+        beta (float): learning rate for Q function,
+        delta (float): learning rate for V function,
+        gamma (float): MDP's gamma
+    '''
+    def __init__(self, env_shape: tuple, alpha: float, beta:float, 
+                 delta: float, gamma: float,
+                 total_steps: int = 0, lr_scheduler = None):
+        super().__init__(env_shape, alpha, beta, gamma, total_steps, lr_scheduler)
+        self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
+        self.delta = delta
+        self.value_opt = torch.optim.SGD(params=[self.value], lr=self.delta)
+
+    def update_values(self, states, cum_rewards):
+        vals = self.value[states]
+        val_loss = (vals - cum_rewards) ** 2 / 2
+
+        self.value_opt.zero_grad()
+        val_loss.mean().backward()
+        self.value_opt.step()
+
+        return val_loss
+
+
+    def compute_advantage(self, states, next_states, actions, cum_rewards, rewards, dones):
+        # Subtract action-state baseline and add
+        # expectation over actions to keep the estimate unbiased
+        if not torch.is_tensor(rewards):
+            rewards = torch.FloatTensor(rewards)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
+        expectation = (policy.probs * self.Q[states]).sum(dim=1).squeeze()
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+
+        # Get Q, V functions for episode
+        v_s = self.value[next_states]
+        q_a_s = self.Q[states, actions].squeeze()
+
+        # Compute sum of future Q, V functions
+        v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
+        q_s_gamma = (1 / self.gamma) * self.accumulate(torch.cat((q_a_s[:-1],
+                                                       torch.FloatTensor([0]))))
+        cum_rewards_gamma = (1 / self.gamma) * self.accumulate(torch.cat((rewards[:-1],
+                                                               torch.FloatTensor([0]))))     
+        q_a_s = self.accumulate(q_a_s)
+
+        advantage = cum_rewards - cum_rewards_gamma -  q_a_s + q_s_gamma - v_s + future_expectation
+        return advantage, expectation
+
+    def update(self, states, actions, rewards, next_states, dones):
+        states = torch.LongTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = np.asarray(rewards)
+
+        # First compute cumulative rewards
+        cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones))
+
+        # Update V, Q values
+        _ = self.update_values(states, cum_rewards)
+        _ = self.update_q_values(states, actions, cum_rewards)
+
+        #Update transition probs
+
+        #Get targets
+        adv, expectation = self.compute_advantage(states, next_states, actions,
+                                                  cum_rewards, rewards, dones)
+
+        # Update the policy
+        loss, cats, mean_var = self.make_pg_step(states, actions, adv, expectation)
+
+        return loss.mean().item(), mean_var, cats.entropy().mean().item(), adv.mean()
+
+
+class PerfectModelFreeDynamicsTrajCVAgent(ModelFreeDynamicsTrajCVAgent):
+    '''
+    Implements REINFORCE algorithm with Dynamics TrajCV baseline.
+    Policy, Q function and V functions are trained with GD.
+    Transition function is estimated from rollouts.
+    Args:
+        env_shape (tuple): [num_states x num_actions],
+        alpha (float): learning rate for policy,
+        beta (float): learning rate for Q function,
+        delta (float): learning rate for V function,
+        gamma (float): MDP's gamma
+    '''
+    def __init__(self, env_shape: tuple, alpha: float, beta:float, delta: float,
+                 gamma: float, env, episode_length, analytical: bool):
+        super().__init__(env_shape, alpha, beta, delta, gamma)
+        self.env = env
+        self.episode_length = episode_length
+        self.analytical = analytical
+
+    def compute_advantage(self, states, next_states, actions, cum_rewards, rewards, dones):
+        pi_a_s = torch.softmax(self.pi, 1)
+        pi_a_s = pi_a_s.detach().numpy().T
+
+        if self.analytical is True:
+            self.env.compute_hindsight_probabilities_analytically(pi_a_s)
+            q_s = torch.FloatTensor(self.env.get_state_all_action_values(states=states))
+            q_a_s = torch.FloatTensor(self.env.get_state_action_value(states=states,
+                                                                      actions=actions))
+            v_s = torch.FloatTensor(self.env.get_state_value(states=next_states))
+        else:
+            self.env.initialize_hindsight(self.episode_length, pi_a_s)
+            # here we assume that data is sequential and begins with the start of the episode
+            extended_done_ids = np.flatnonzero([True] + dones)
+            ts = []
+            for i in range(len(extended_done_ids) - 1):
+                ts.extend(list(range(extended_done_ids[i + 1] - extended_done_ids[i])))
+            q_a_s = torch.FloatTensor(self.env.get_state_action_value(states=states,
+                                                                      actions=actions, ts=ts))
+            v_s = torch.FloatTensor(self.env.get_state_value(states=next_states, ts=ts))
+
+        if not torch.is_tensor(rewards):
+            rewards = torch.FloatTensor(rewards)
+        policy = torch.distributions.Categorical(logits=self.pi[states])
+        expectation = (policy.probs * q_s).sum(dim=1).squeeze()
+        future_expectation = self.accumulate(torch.cat((expectation[1:], torch.FloatTensor([0]))))
+
+        # Get Q, V functions for episode
+
+        # Compute sum of future Q, V functions
+        v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
+        q_s_gamma = (1 / self.gamma) * self.accumulate(torch.cat((q_a_s[:-1],
+                                                       torch.FloatTensor([0]))))
+        cum_rewards_gamma = (1 / self.gamma) * self.accumulate(torch.cat((rewards[:-1],
+                                                               torch.FloatTensor([0]))))     
+        q_a_s = self.accumulate(q_a_s)
+
+        advantage = cum_rewards - cum_rewards_gamma -  q_a_s + q_s_gamma - v_s + future_expectation
         return advantage, expectation

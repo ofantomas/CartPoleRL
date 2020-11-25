@@ -1,7 +1,7 @@
-from functools import partial
+import os
 import inspect
-
 import click
+from torch.optim import lr_scheduler as lrs
 # Core setup and run for CCA tabular experiments
 #from git import Repo
 
@@ -10,13 +10,15 @@ from agents import ReinforceAgent, RandomAgent, \
                    OptimalStateBaselineAgent, ActionStateBaselineAgent,\
                    PerfectActionStateBaselineAgent, TrajectoryCVAgent,\
                    PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent,\
-                   DynamicsTrajCVAgent, PerfectDynamicsEstQVTrajCVAgent
-    
-from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv, \
-    SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv, CounterexampleBanditEnv, \
-    CounterexampleBandit2Env
+                   DynamicsTrajCVAgent, PerfectDynamicsEstQVTrajCVAgent,\
+                   ModelFreeDynamicsTrajCVAgent, PerfectModelFreeDynamicsTrajCVAgent
+
+from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv,\
+    SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv,\
+    CounterexampleBanditEnv, CounterexampleBandit2Env
 from logger import LoggingManager, WandbLogger, LocalLogger
 from train import train
+from utils import plot_policy
 
 
 #def get_current_sha():
@@ -46,14 +48,14 @@ ENV_CONSTRUCTORS = {
 }
 
 
-def ignore_extra_args(foo):
-    def indifferent_foo(**kwargs):
-        signature = inspect.signature(foo)
+def ignore_extra_args(func):
+    def indifferent_func(**kwargs):
+        signature = inspect.signature(func)
         expected_keys = [p.name for p in signature.parameters.values()
                          if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD]
         filtered_kwargs = {k: kwargs[k] for k in kwargs if k in expected_keys}
-        return foo(**filtered_kwargs)
-    return indifferent_foo
+        return func(**filtered_kwargs)
+    return indifferent_func
 
 
 AGENT_CONSTRUCTORS = {
@@ -68,7 +70,13 @@ AGENT_CONSTRUCTORS = {
     "dynamics_traj_cv": ignore_extra_args(DynamicsTrajCVAgent),
     "perfect_dynamics_traj_cv": ignore_extra_args(PerfectDynamicsTrajCVAgent),
     "perfect_dynamics_est_QV_traj_cv": ignore_extra_args(PerfectDynamicsEstQVTrajCVAgent),
+    "model_free_dynamics_traj_cv": ignore_extra_args(ModelFreeDynamicsTrajCVAgent),
+    "perfect_model_free_dynamics_traj_cv": ignore_extra_args(PerfectModelFreeDynamicsTrajCVAgent),
     "random": ignore_extra_args(RandomAgent)
+}
+
+LR_SCHEDULERS = {
+    "OneCycle": lrs.OneCycleLR
 }
 
 
@@ -84,6 +92,7 @@ def cli():
 @click.option("--episodes", type=int, required=True)
 @click.option("--epi_length", type=int, required=True)
 @click.option("--eps_per_train", type=int, default=1)
+@click.option("--lr_scheduler", type=click.Choice(LR_SCHEDULERS.keys()), default=None)
 @click.option("--alpha", type=float, default=0.1)
 @click.option("--beta", type=float, default=None)
 @click.option("--delta", type=float, default=None)
@@ -95,6 +104,8 @@ def cli():
 @click.option("--exp_name", type=str, default='experiment')
 @click.option("--analytical", type=bool, default=False)
 @click.option("--estimate_policy", type=bool, default=False)
+@click.option("--show_policy", type=bool, default=False)
+@click.option("--estimate_variance", type=bool, default=False)
 def run(
     model_type,
     env_type,
@@ -102,6 +113,7 @@ def run(
     episodes,
     epi_length,
     eps_per_train,
+    lr_scheduler,
     alpha,
     beta,
     delta,
@@ -112,7 +124,9 @@ def run(
     log_folder,
     exp_name,
     analytical,
-    estimate_policy
+    estimate_policy,
+    show_policy,
+    estimate_variance
 ):
     for _ in range(run_n_times):
         config = {
@@ -133,7 +147,9 @@ def run(
         if project is not None:
             logger_manager.add_logger(WandbLogger(project, exp_name))
         if log_folder is not None:
-            logger_manager.add_logger(LocalLogger(log_folder, exp_name))
+            local_logger = LocalLogger(log_folder, exp_name)
+            current_run_folder = local_logger.current_run_folder
+            logger_manager.add_logger(local_logger)
         logger_manager.log_config(config)
 
         if env_type not in ENV_CONSTRUCTORS:
@@ -149,6 +165,10 @@ def run(
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")
         else:
+            if lr_scheduler is not None:
+                scheduler = LR_SCHEDULERS[lr_scheduler]
+            else:
+                scheduler = None
             agent = AGENT_CONSTRUCTORS[model_type](env=env,
                                                    env_shape=env_shape,
                                                    alpha=alpha,
@@ -156,11 +176,20 @@ def run(
                                                    delta=delta,
                                                    gamma=gamma,
                                                    episode_length=epi_length,
-                                                   analytical=analytical)
+                                                   analytical=analytical,
+                                                   total_steps=episodes,
+                                                   lr_scheduler=scheduler)
 
         train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq,
-              logger=logger_manager, estimate_policy=estimate_policy, analytical=analytical)
+              logger=logger_manager, estimate_policy=estimate_policy,
+              analytical=analytical, estimate_variance=estimate_variance)
 
+        if show_policy is True:
+            if log_folder is not None:
+                output_path = os.path.join(current_run_folder, 'policy.pdf')
+                plot_policy(env, agent.pi.detach().numpy(), epi_length, output_path)
+            else:
+                print('Log folder must not be None in order to save policy plot.')
 
 if __name__ == "__main__":
     cli()
