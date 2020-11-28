@@ -48,35 +48,35 @@ ENV_CONSTRUCTORS = {
 }
 
 
-def ignore_extra_args(func):
-    def indifferent_func(**kwargs):
-        signature = inspect.signature(func)
-        expected_keys = [p.name for p in signature.parameters.values()
-                         if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD]
-        filtered_kwargs = {k: kwargs[k] for k in kwargs if k in expected_keys}
-        return func(**filtered_kwargs)
-    return indifferent_func
+def ignore_extra_args(func, **kwargs):
+    signature = inspect.signature(func)
+    expected_keys = [p.name for p in signature.parameters.values()
+                        if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD]
+    filtered_kwargs = {k: kwargs[k] for k in kwargs if k in expected_keys}
+    return filtered_kwargs
 
 
 AGENT_CONSTRUCTORS = {
-    "reinforce": ignore_extra_args(ReinforceAgent),
-    "value_baseline": ignore_extra_args(ValueBaselineAgent),
-    "perfect_value_baseline": ignore_extra_args(PerfectValueBaselineAgent),
-    "optimal_state_baseline" : ignore_extra_args(OptimalStateBaselineAgent),
-    "state_action_baseline": ignore_extra_args(ActionStateBaselineAgent),
-    "perfect_state_action_baseline": ignore_extra_args(PerfectActionStateBaselineAgent),
-    "traj_cv": ignore_extra_args(TrajectoryCVAgent),
-    "perfect_traj_cv": ignore_extra_args(PerfectTrajectoryCVAgent),
-    "dynamics_traj_cv": ignore_extra_args(DynamicsTrajCVAgent),
-    "perfect_dynamics_traj_cv": ignore_extra_args(PerfectDynamicsTrajCVAgent),
-    "perfect_dynamics_est_QV_traj_cv": ignore_extra_args(PerfectDynamicsEstQVTrajCVAgent),
-    "model_free_dynamics_traj_cv": ignore_extra_args(ModelFreeDynamicsTrajCVAgent),
-    "perfect_model_free_dynamics_traj_cv": ignore_extra_args(PerfectModelFreeDynamicsTrajCVAgent),
-    "random": ignore_extra_args(RandomAgent)
+    "reinforce": ReinforceAgent,
+    "value_baseline": ValueBaselineAgent,
+    "perfect_value_baseline": PerfectValueBaselineAgent,
+    "optimal_state_baseline" : OptimalStateBaselineAgent,
+    "state_action_baseline": ActionStateBaselineAgent,
+    "perfect_state_action_baseline": PerfectActionStateBaselineAgent,
+    "traj_cv": TrajectoryCVAgent,
+    "perfect_traj_cv": PerfectTrajectoryCVAgent,
+    "dynamics_traj_cv": DynamicsTrajCVAgent,
+    "perfect_dynamics_traj_cv": PerfectDynamicsTrajCVAgent,
+    "perfect_dynamics_est_QV_traj_cv": PerfectDynamicsEstQVTrajCVAgent,
+    "model_free_dynamics_traj_cv": ModelFreeDynamicsTrajCVAgent,
+    "perfect_model_free_dynamics_traj_cv": PerfectModelFreeDynamicsTrajCVAgent,
+    "random": RandomAgent
 }
 
+
 LR_SCHEDULERS = {
-    "OneCycle": lrs.OneCycleLR
+    "OneCycle": lrs.OneCycleLR,
+    "MultiStep": lrs.MultiStepLR
 }
 
 
@@ -128,6 +128,10 @@ def run(
     show_policy,
     estimate_variance
 ):
+    lr_scheduler_kwargs = {
+        "OneCycle": {'max_lr': 20 * alpha, 'total_steps': episodes, 'cycle_momentum': False},
+        "MultiStep": {'milestones': [int(0.15 * episodes), int(0.8 * episodes)]}
+    }
     for _ in range(run_n_times):
         config = {
             'model_type': model_type,
@@ -165,20 +169,24 @@ def run(
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")
         else:
+            scheduler = None
+            scheduler_kwargs = {}
             if lr_scheduler is not None:
                 scheduler = LR_SCHEDULERS[lr_scheduler]
-            else:
-                scheduler = None
-            agent = AGENT_CONSTRUCTORS[model_type](env=env,
-                                                   env_shape=env_shape,
-                                                   alpha=alpha,
-                                                   beta=beta,
-                                                   delta=delta,
-                                                   gamma=gamma,
-                                                   episode_length=epi_length,
-                                                   analytical=analytical,
-                                                   total_steps=episodes,
-                                                   lr_scheduler=scheduler)
+                scheduler_kwargs = lr_scheduler_kwargs[lr_scheduler]
+            agent = AGENT_CONSTRUCTORS[model_type]
+            agent_kwargs = ignore_extra_args(agent,
+                                             env=env,
+                                             env_shape=env_shape,
+                                             alpha=alpha,
+                                             beta=beta,
+                                             delta=delta,
+                                             gamma=gamma,
+                                             episode_length=epi_length,
+                                             analytical=analytical,
+                                             lr_scheduler=scheduler)
+            print({**agent_kwargs, **scheduler_kwargs})
+            agent = agent(**{**agent_kwargs, **scheduler_kwargs})
 
         train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq,
               logger=logger_manager, estimate_policy=estimate_policy,
