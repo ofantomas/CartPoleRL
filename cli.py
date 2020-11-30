@@ -1,4 +1,5 @@
 import os
+import json
 import inspect
 import click
 from torch.optim import lr_scheduler as lrs
@@ -76,7 +77,8 @@ AGENT_CONSTRUCTORS = {
 
 LR_SCHEDULERS = {
     "OneCycle": lrs.OneCycleLR,
-    "MultiStep": lrs.MultiStepLR
+    "MultiStep": lrs.MultiStepLR,
+    "MultiplicativeLR": lrs.MultiplicativeLR
 }
 
 
@@ -93,10 +95,11 @@ def cli():
 @click.option("--epi_length", type=int, required=True)
 @click.option("--eps_per_train", type=int, default=1)
 @click.option("--lr_scheduler", type=click.Choice(LR_SCHEDULERS.keys()), default=None)
+@click.option("--lr_scheduler_kwargs", type=str, default='{}')
 @click.option("--alpha", type=float, default=0.1)
 @click.option("--beta", type=float, default=None)
 @click.option("--delta", type=float, default=None)
-@click.option("--gamma", type=float, default=0.99)
+@click.option("--gamma_env", type=float, default=0.99)
 @click.option("--run_n_times", type=int, default=1)
 @click.option("--log_freq", type=int, default=1)
 @click.option("--project", type=str, default=None)
@@ -114,10 +117,11 @@ def run(
     epi_length,
     eps_per_train,
     lr_scheduler,
+    lr_scheduler_kwargs,
     alpha,
     beta,
     delta,
-    gamma,
+    gamma_env,
     run_n_times,
     log_freq,
     project,
@@ -128,10 +132,11 @@ def run(
     show_policy,
     estimate_variance
 ):
-    lr_scheduler_kwargs = {
-        "OneCycle": {'max_lr': 20 * alpha, 'total_steps': episodes, 'cycle_momentum': False},
-        "MultiStep": {'milestones': [int(0.15 * episodes), int(0.8 * episodes)]}
-    }
+    try:
+        lr_scheduler_kwargs = json.loads(lr_scheduler_kwargs)
+    except json.decoder.JSONDecodeError as exception:
+        print("Unable to parse lr_scheduler_kwargs. JSON error: " + str(exception) + ".")
+
     for _ in range(run_n_times):
         config = {
             'model_type': model_type,
@@ -141,7 +146,7 @@ def run(
             'alpha': alpha,
             'beta': beta,
             'delta': delta,
-            'gamma': gamma,
+            'gamma_env': gamma_env,
             'eps_per_train': eps_per_train,
             #'git_sha': get_current_sha(),
             'analytical': analytical,
@@ -163,17 +168,14 @@ def run(
                 env = ENV_CONSTRUCTORS[env_type](env_slip_rate)
             else:
                 env = ENV_CONSTRUCTORS[env_type]()
-
         env_shape = env.transitions.shape
 
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")
         else:
             scheduler = None
-            scheduler_kwargs = {}
             if lr_scheduler is not None:
                 scheduler = LR_SCHEDULERS[lr_scheduler]
-                scheduler_kwargs = lr_scheduler_kwargs[lr_scheduler]
             agent = AGENT_CONSTRUCTORS[model_type]
             agent_kwargs = ignore_extra_args(agent,
                                              env=env,
@@ -181,12 +183,11 @@ def run(
                                              alpha=alpha,
                                              beta=beta,
                                              delta=delta,
-                                             gamma=gamma,
+                                             gamma_env=gamma_env,
                                              episode_length=epi_length,
                                              analytical=analytical,
                                              lr_scheduler=scheduler)
-            print({**agent_kwargs, **scheduler_kwargs})
-            agent = agent(**{**agent_kwargs, **scheduler_kwargs})
+            agent = agent(**{**agent_kwargs, **lr_scheduler_kwargs})
 
         train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq,
               logger=logger_manager, estimate_policy=estimate_policy,

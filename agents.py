@@ -27,12 +27,12 @@ class ReinforceAgent:
     Args:
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
     '''
-    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, gamma_env: float,
                 lr_scheduler = None, **lr_scheduler_kwargs):
         self.alpha = alpha
-        self.gamma = gamma
+        self.gamma_env = gamma_env
         self.lr_scheduler = lr_scheduler
         self.env_shape = env_shape
         self.pi = torch.ones(self.env_shape, dtype=torch.float, requires_grad=True)
@@ -54,7 +54,7 @@ class ReinforceAgent:
         acc_rewards = np.zeros_like(rewards)
         for idx, r in reversed(list(enumerate(rewards))):
             if idx < len(rewards) - 1:
-                acc_rewards[idx] += self.gamma * acc_rewards[idx + 1] * (1 - dones[idx])
+                acc_rewards[idx] += self.gamma_env * acc_rewards[idx + 1] * (1 - dones[idx])
             acc_rewards[idx] += r
         return acc_rewards
 
@@ -113,11 +113,11 @@ class ValueBaselineAgent(ReinforceAgent):
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
         beta (float): learning rate for V function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma_env: float,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
         self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
         self.beta = beta
         self.value_opt = torch.optim.SGD(params=[self.value], lr=self.beta)
@@ -167,16 +167,16 @@ class PerfectValueBaselineAgent(ValueBaselineAgent):
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
         env: environment,
         episode_length (int): max length of the episode,
         analytical (bool): whether to compute Q function
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float,
-                 gamma: float, env, episode_length: int, analytical: bool,
+                 gamma_env: float, env, episode_length: int, analytical: bool,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -210,13 +210,13 @@ class OptimalStateBaselineAgent(ReinforceAgent):
     Args:
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
         env: environment,
         episode_length (int): max length of the episode
     '''
-    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, gamma_env: float,
                  env, episode_length: int):
-        super().__init__(env_shape, alpha, gamma)
+        super().__init__(env_shape, alpha, gamma_env)
         self.env = env
         self.episode_length = episode_length
         self.optimal_baseline = None
@@ -277,12 +277,12 @@ class ValueModAgent(ValueBaselineAgent):
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
-        gamma (float): MDP's gamma,
+        gamma_env (float): MDP's gamma_env,
         value_mult: float -- multiplication rate
     '''
-    def __init__(self, env_shape: tuple, alpha: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, gamma_env: float,
                  beta:float, value_mult: float = 1):
-        super().__init__(env_shape, alpha, beta, gamma)
+        super().__init__(env_shape, alpha, beta, gamma_env)
         self.value_mult = value_mult
 
     # Like the parent, but with a multiplier
@@ -309,11 +309,11 @@ class ActionStateBaselineAgent(ReinforceAgent):
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma_env: float,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
 
         self.Q = torch.zeros(env_shape, dtype=torch.float, requires_grad=True)
         self.beta = beta
@@ -386,16 +386,16 @@ class PerfectActionStateBaselineAgent(ActionStateBaselineAgent):
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
         env: environment,
         episode_length (int): max length of the episode,
         analytical (bool): whether to compute Q function
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta: float,
-                 gamma: float, env, episode_length, analytical: bool,
+                 gamma_env: float, env, episode_length, analytical: bool,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, gamma, lr_scheduler    , **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, gamma_env, lr_scheduler    , **lr_scheduler_kwargs)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -436,11 +436,11 @@ class TrajectoryCVAgent(ActionStateBaselineAgent):
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma_env: float,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
 
     def accumulate(self, values):
         return torch.flip(torch.cumsum(torch.flip(values, dims=[0]), 0), dims=[0])
@@ -469,16 +469,16 @@ class PerfectTrajectoryCVAgent(TrajectoryCVAgent):
         env_shape (tuple): [num_states x num_actions],
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q functions,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
         env: environment,
         episode_length (int): max length of the episode,
         analytical (bool): whether to compute Q function
             assuming infinite episode_length
     '''
-    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma: float,
+    def __init__(self, env_shape: tuple, alpha: float, beta: float, gamma_env: float,
                  env, episode_length, analytical: bool,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -523,12 +523,12 @@ class DynamicsTrajCVAgent(TrajectoryCVAgent):
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
         delta (float): learning rate for V function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float, 
-                 delta: float, gamma: float,
+                 delta: float, gamma_env: float,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
 
         self.p_s_sa = torch.zeros((env_shape[0], env_shape[0], env_shape[1]),
                                   dtype=torch.float, requires_grad=False)
@@ -611,16 +611,16 @@ class PerfectDynamicsTrajCVAgent(DynamicsTrajCVAgent):
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
         delta (float): learning rate for V function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
         env: environment,
         episode_length (int): max length of the episode,
         analytical (bool): whether to compute Q, V functions
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta: float, delta: float,
-                 gamma: float, env, episode_length, analytical: bool,
+                 gamma_env: float, env, episode_length, analytical: bool,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, delta, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, delta, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -679,16 +679,16 @@ class PerfectDynamicsEstQVTrajCVAgent(DynamicsTrajCVAgent):
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
         delta (float): learning rate for V function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
         env: environment,
         episode_length (int): max length of the episode
         analytical (bool): whether to compute Q, V functions
             assuming infinite episode_length
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float,
-                 delta: float, gamma: float, env,
+                 delta: float, gamma_env: float, env,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, delta, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, delta, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
         self.env = env
 
     def compute_advantage(self, states, next_states, actions, cum_rewards, dones):
@@ -729,12 +729,12 @@ class ModelFreeDynamicsTrajCVAgent(TrajectoryCVAgent):
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
         delta (float): learning rate for V function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float,
-                 delta: float, gamma: float,
+                 delta: float, gamma_env: float,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, gamma, lr_scheduler = None, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, gamma_env, lr_scheduler = None, **lr_scheduler_kwargs)
         self.value = torch.zeros(env_shape[0], dtype=torch.float, requires_grad=True)
         self.delta = delta
         self.value_opt = torch.optim.SGD(params=[self.value], lr=self.delta)
@@ -765,13 +765,13 @@ class ModelFreeDynamicsTrajCVAgent(TrajectoryCVAgent):
 
         # Compute sum of future Q, V functions
         v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
-        q_s_gamma = (1 / self.gamma) * self.accumulate(torch.cat((q_a_s[:-1],
+        q_s_gamma_env = (1 / self.gamma_env) * self.accumulate(torch.cat((q_a_s[:-1],
                                                        torch.FloatTensor([0]))))
-        cum_rewards_gamma = (1 / self.gamma) * self.accumulate(torch.cat((rewards[:-1],
+        cum_rewards_gamma_env = (1 / self.gamma_env) * self.accumulate(torch.cat((rewards[:-1],
                                                                torch.FloatTensor([0]))))     
         q_a_s = self.accumulate(q_a_s)
 
-        advantage = cum_rewards - cum_rewards_gamma -  q_a_s + q_s_gamma - v_s + future_expectation
+        advantage = cum_rewards - cum_rewards_gamma_env -  q_a_s + q_s_gamma_env - v_s + future_expectation
         return advantage, expectation
 
     def update(self, states, actions, rewards, next_states, dones):
@@ -808,12 +808,12 @@ class PerfectModelFreeDynamicsTrajCVAgent(ModelFreeDynamicsTrajCVAgent):
         alpha (float): learning rate for policy,
         beta (float): learning rate for Q function,
         delta (float): learning rate for V function,
-        gamma (float): MDP's gamma
+        gamma_env (float): MDP's gamma_env
     '''
     def __init__(self, env_shape: tuple, alpha: float, beta:float, delta: float,
-                 gamma: float, env, episode_length, analytical: bool,
+                 gamma_env: float, env, episode_length, analytical: bool,
                  lr_scheduler = None, **lr_scheduler_kwargs):
-        super().__init__(env_shape, alpha, beta, delta, gamma, lr_scheduler, **lr_scheduler_kwargs)
+        super().__init__(env_shape, alpha, beta, delta, gamma_env, lr_scheduler, **lr_scheduler_kwargs)
         self.env = env
         self.episode_length = episode_length
         self.analytical = analytical
@@ -849,11 +849,11 @@ class PerfectModelFreeDynamicsTrajCVAgent(ModelFreeDynamicsTrajCVAgent):
 
         # Compute sum of future Q, V functions
         v_s = self.accumulate(torch.cat((v_s[1:], torch.FloatTensor([0]))))
-        q_s_gamma = (1 / self.gamma) * self.accumulate(torch.cat((q_a_s[:-1],
+        q_s_gamma_env = (1 / self.gamma_env) * self.accumulate(torch.cat((q_a_s[:-1],
                                                        torch.FloatTensor([0]))))
-        cum_rewards_gamma = (1 / self.gamma) * self.accumulate(torch.cat((rewards[:-1],
+        cum_rewards_gamma_env = (1 / self.gamma_env) * self.accumulate(torch.cat((rewards[:-1],
                                                                torch.FloatTensor([0]))))     
         q_a_s = self.accumulate(q_a_s)
 
-        advantage = cum_rewards - cum_rewards_gamma -  q_a_s + q_s_gamma - v_s + future_expectation
+        advantage = cum_rewards - cum_rewards_gamma_env -  q_a_s + q_s_gamma_env - v_s + future_expectation
         return advantage, expectation
