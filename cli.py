@@ -7,16 +7,10 @@ from torch.optim import lr_scheduler as lrs
 #from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
-                   ValueBaselineAgent, PerfectValueBaselineAgent,\
-                   OptimalStateBaselineAgent, ActionStateBaselineAgent,\
-                   PerfectActionStateBaselineAgent, TrajectoryCVAgent,\
-                   PerfectTrajectoryCVAgent, PerfectDynamicsTrajCVAgent,\
-                   DynamicsTrajCVAgent, PerfectDynamicsEstQVTrajCVAgent,\
-                   ModelFreeDynamicsTrajCVAgent, PerfectModelFreeDynamicsTrajCVAgent
-
-from envs import TestEnv, SmallGridEnv, SmallGridExtraActionsEnv, SmallGridNoNoOpEnv,\
-    SmallGridNotDoneEnv, ShortcutEnv, DelayedEffectEnv, AmbiguousBanditEnv, FrozenLakeEnv,\
-    CounterexampleBanditEnv, CounterexampleBandit2Env
+                   ValueBaselineAgent,OptimalStateBaselineAgent,\
+                   ActionStateBaselineAgent,TrajectoryCVAgent,
+                   DynamicsTrajCVAgent, ModelFreeDynamicsTrajCVAgent
+from envs import get_sticky_actions_gym_env
 from logger import LoggingManager, WandbLogger, LocalLogger
 from train import train
 from utils import plot_policy
@@ -30,23 +24,23 @@ from utils import plot_policy
 #    return repo.head.commit.hexsha
 
 
-ENV_CONSTRUCTORS = {
-    "test": lambda: TestEnv(),
-    "small_grid": lambda: SmallGridEnv(),
-    "small_grid_extra_actions": lambda: SmallGridExtraActionsEnv(),
-    "small_grid_no_no_op": lambda: SmallGridNoNoOpEnv(),
-    "small_grid_not_done": lambda: SmallGridNotDoneEnv(),
-    "shortcut_hca": lambda: ShortcutEnv(),
-    "delayed_hca": lambda: DelayedEffectEnv(),
-    "delayed_hca_noisy": lambda: DelayedEffectEnv(3, 1),
-    "delayed_10step": lambda: DelayedEffectEnv(8),
-    "delayed_100step": lambda: DelayedEffectEnv(98),
-    "delayed_100step_noisy": lambda: DelayedEffectEnv(98, 0.1),
-    "ambiguous_hca": lambda: AmbiguousBanditEnv(),
-    "frozenlake": lambda slip_rate: FrozenLakeEnv(slip_rate),
-    "counterexample_bandit": lambda: CounterexampleBanditEnv(),
-    "counterexample_bandit_2": lambda: CounterexampleBandit2Env()
-}
+# ENV_CONSTRUCTORS = {
+#     "test": lambda: TestEnv(),
+#     "small_grid": lambda: SmallGridEnv(),
+#     "small_grid_extra_actions": lambda: SmallGridExtraActionsEnv(),
+#     "small_grid_no_no_op": lambda: SmallGridNoNoOpEnv(),
+#     "small_grid_not_done": lambda: SmallGridNotDoneEnv(),
+#     "shortcut_hca": lambda: ShortcutEnv(),
+#     "delayed_hca": lambda: DelayedEffectEnv(),
+#     "delayed_hca_noisy": lambda: DelayedEffectEnv(3, 1),
+#     "delayed_10step": lambda: DelayedEffectEnv(8),
+#     "delayed_100step": lambda: DelayedEffectEnv(98),
+#     "delayed_100step_noisy": lambda: DelayedEffectEnv(98, 0.1),
+#     "ambiguous_hca": lambda: AmbiguousBanditEnv(),
+#     "frozenlake": lambda slip_rate: FrozenLakeEnv(slip_rate),
+#     "counterexample_bandit": lambda: CounterexampleBanditEnv(),
+#     "counterexample_bandit_2": lambda: CounterexampleBandit2Env()
+# }
 
 
 def ignore_extra_args(func, **kwargs):
@@ -60,17 +54,11 @@ def ignore_extra_args(func, **kwargs):
 AGENT_CONSTRUCTORS = {
     "reinforce": ReinforceAgent,
     "value_baseline": ValueBaselineAgent,
-    "perfect_value_baseline": PerfectValueBaselineAgent,
     "optimal_state_baseline" : OptimalStateBaselineAgent,
     "state_action_baseline": ActionStateBaselineAgent,
-    "perfect_state_action_baseline": PerfectActionStateBaselineAgent,
     "traj_cv": TrajectoryCVAgent,
-    "perfect_traj_cv": PerfectTrajectoryCVAgent,
     "dynamics_traj_cv": DynamicsTrajCVAgent,
-    "perfect_dynamics_traj_cv": PerfectDynamicsTrajCVAgent,
-    "perfect_dynamics_est_QV_traj_cv": PerfectDynamicsEstQVTrajCVAgent,
     "model_free_dynamics_traj_cv": ModelFreeDynamicsTrajCVAgent,
-    "perfect_model_free_dynamics_traj_cv": PerfectModelFreeDynamicsTrajCVAgent,
     "random": RandomAgent
 }
 
@@ -89,8 +77,9 @@ def cli():
 
 @cli.command()
 @click.option("--model_type", type=click.Choice(AGENT_CONSTRUCTORS.keys()), required=True)
-@click.option("--env_type", type=click.Choice(ENV_CONSTRUCTORS.keys()), required=True)
-@click.option("--env_slip_rate", type=float, default=0.1)
+# @click.option("--env_type", type=click.Choice(ENV_CONSTRUCTORS.keys()), required=True)
+@click.option("--env_type", type=str, default='CartPole-v0')
+@click.option("--env_sticky_prob", type=float, default=0.25)
 @click.option("--episodes", type=int, required=True)
 @click.option("--epi_length", type=int, required=True)
 @click.option("--eps_per_train", type=int, default=1)
@@ -105,14 +94,12 @@ def cli():
 @click.option("--project", type=str, default=None)
 @click.option("--log_folder", type=str, default=None)
 @click.option("--exp_name", type=str, default='experiment')
-@click.option("--analytical", type=bool, default=False)
-@click.option("--estimate_policy", type=bool, default=False)
 @click.option("--show_policy", type=bool, default=False)
 @click.option("--estimate_variance", type=bool, default=False)
 def run(
     model_type,
     env_type,
-    env_slip_rate,
+    env_sticky_prob,
     episodes,
     epi_length,
     eps_per_train,
@@ -127,8 +114,6 @@ def run(
     project,
     log_folder,
     exp_name,
-    analytical,
-    estimate_policy,
     show_policy,
     estimate_variance
 ):
@@ -160,16 +145,10 @@ def run(
             current_run_folder = local_logger.current_run_folder
             logger_manager.add_logger(local_logger)
         logger_manager.log_config(config)
-
-        if env_type not in ENV_CONSTRUCTORS:
-            raise Exception("ENV NOT IMPLEMENTED")
-        else:
-            if env_type == "frozenlake":
-                env = ENV_CONSTRUCTORS[env_type](env_slip_rate)
-            else:
-                env = ENV_CONSTRUCTORS[env_type]()
-        env_shape = env.transitions.shape
-
+        
+        env = get_sticky_actions_gym_env(env, env_sticky_prob)
+        state_space_shape = env.observation_space.shape
+        
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")
         else:

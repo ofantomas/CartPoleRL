@@ -9,7 +9,6 @@ from variance_estimation import estimate_agent_analytically,\
 def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
           logger=None, estimate_policy: bool=True, analytical: bool=False,
           estimate_variance: bool=False):
-    states_visited = np.zeros(env.transitions.shape, int)
     episode_train_rewards = []
     episode_validation_rewards = []
     losses = []
@@ -33,7 +32,6 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
             # Reset the environment.
             s = env.reset()
             for t in range(ep_length):
-                states_visited[s] += 1
                 a = agent.select_action(s, inference=False).item()
                 ns, r, d = env.step(a)
                 total_n_frames += 1
@@ -87,21 +85,18 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
         episode_validation_rewards.append(total_r_inference)
         losses.append(loss_mean)
         loss_vars.append(loss_var)
-    return episode_train_rewards, episode_validation_rewards, states_visited, losses, loss_vars
+    return episode_train_rewards, episode_validation_rewards, losses, loss_vars
 
 
 def validate(agent, env, episode_length: int):
     total_r_inference = 0
-    states = []
     s = env.reset()
-    states.append(s)
     for _ in range(episode_length):
         a = agent.select_action(s, inference=True)
         ns, r, d = env.step(a)
         s = ns
-        states.append(s)
         total_r_inference += r
         if d:
             break
 
-    return states, total_r_inference
+    return total_r_inference
