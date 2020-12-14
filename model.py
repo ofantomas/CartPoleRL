@@ -59,6 +59,6 @@ class Net(nn.Module):
                 self.net.add_module('relu_' + str(i), nn.ReLU())
 
     def forward(self, states):
-        return {'logits': self.net(states)}
+        return self.net(states)
         
 
