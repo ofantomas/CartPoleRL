@@ -7,12 +7,10 @@ from variance_estimation import estimate_agent_analytically,\
 
 
 def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
-          logger=None, estimate_policy: bool=True, analytical: bool=False,
-          estimate_variance: bool=False):
+          logger=None, estimate_variance: bool=False):
     episode_train_rewards = []
     episode_validation_rewards = []
     losses = []
-    loss_vars = []
     total_n_frames = 0
 
     for i in tqdm(range(math.ceil(n_eps / eps_per_train))):
@@ -33,7 +31,7 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
             s = env.reset()
             for t in range(ep_length):
                 a = agent.select_action(s, inference=False).item()
-                ns, r, d = env.step(a)
+                ns, r, d, _ = env.step(a)
                 total_n_frames += 1
                 # Set done if out of time
                 if not d and t == ep_length - 1:
@@ -55,24 +53,19 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
         mean_t = ts.mean()
 
         # Once episode is over, train
-        loss_mean, loss_var, entropy, mean_advantage = agent.update(states, acts, rewards,
+        loss_mean, entropy, mean_advantage = agent.update(states, acts, rewards,
                                                                     next_states, dones)
 
         # Collect a validation trajectory.
-        _, total_r_inference = validate(agent, env, ep_length)
+        total_r_inference = validate(agent, env, ep_length)
 
         # Logging.
         if i % log_freq == 0 or i >= n_eps / eps_per_train:
             logging_dict = {'training_steps': i, 'episodes': i*eps_per_train,
                             'train_reward': total_r_train/eps_per_train,
                             'test_reward': total_r_inference, 'policy_gradient_mean': loss_mean,
-                            'policy_gradient_var': loss_var, 'policy_entropy': entropy,
-                            'timesteps': mean_t, 'mean_advantage': mean_advantage,
-                            'total_n_frames': total_n_frames}
-            if estimate_policy is True:
-                policy_perfomance = estimate_agent_analytically(env, agent, ep_length,
-                                                                analytical=analytical)
-                logging_dict.update({'policy_perfomance': policy_perfomance})
+                            'policy_entropy': entropy, 'timesteps': mean_t,
+                            'mean_advantage': mean_advantage, 'total_n_frames': total_n_frames}
             if estimate_variance is True:
                 pi_grad = estimate_pg_variance(env, agent, policy=None, ep_length=ep_length)
                 grad_var_trace = np.var(pi_grad, axis=0).sum()
@@ -84,8 +77,7 @@ def train(agent, env, n_eps, ep_length, eps_per_train, log_freq: int=100,
         episode_train_rewards.append(total_r_train/eps_per_train)
         episode_validation_rewards.append(total_r_inference)
         losses.append(loss_mean)
-        loss_vars.append(loss_var)
-    return episode_train_rewards, episode_validation_rewards, losses, loss_vars
+    return episode_train_rewards, episode_validation_rewards, losses
 
 
 def validate(agent, env, episode_length: int):
@@ -93,7 +85,7 @@ def validate(agent, env, episode_length: int):
     s = env.reset()
     for _ in range(episode_length):
         a = agent.select_action(s, inference=True)
-        ns, r, d = env.step(a)
+        ns, r, d, _ = env.step(a)
         s = ns
         total_r_inference += r
         if d:

@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 
-class Policy(nn.Module):
+class NetSharedBC(nn.Module):
     def __init__(self, state_shape, n_actions, backbone_hidden=[64, 64], V=False, Q=False):
         super().__init__()
 
@@ -36,13 +36,29 @@ class Policy(nn.Module):
 
     def forward(self, states):
         result = {}
-
         x = self.backbone(states)
-        
         result['logits'] = self.policy(x)
         if self.V:
             result['V'] = self.v(x)
         if self.Q:
             result['Q'] = self.q(x)
+        return result
+
+class Net(nn.Module):
+    def __init__(self, state_shape, n_actions, backbone_hidden=[64, 64]):
+        super().__init__()
+
+        self.state_shape = state_shape[0]
+        self.n_actions = n_actions
+
+        self.net = nn.Sequential()
+        for i, features in enumerate(zip([self.state_shape] + backbone_hidden, backbone_hidden + [self.n_actions])):
+            in_features, out_features = features
+            self.net.add_module('layer_' + str(i), nn.Linear(in_features, out_features))
+            if i < len(backbone_hidden):
+                self.net.add_module('relu_' + str(i), nn.ReLU())
+
+    def forward(self, states):
+        return {'logits': self.net(states)}
         
 

@@ -2,13 +2,14 @@ import os
 import json
 import inspect
 import click
+import torch
 from torch.optim import lr_scheduler as lrs
 # Core setup and run for CCA tabular experiments
 #from git import Repo
 
 from agents import ReinforceAgent, RandomAgent, \
                    ValueBaselineAgent,OptimalStateBaselineAgent,\
-                   ActionStateBaselineAgent,TrajectoryCVAgent,
+                   ActionStateBaselineAgent,TrajectoryCVAgent, \
                    DynamicsTrajCVAgent, ModelFreeDynamicsTrajCVAgent
 from envs import get_sticky_actions_gym_env
 from logger import LoggingManager, WandbLogger, LocalLogger
@@ -76,8 +77,8 @@ def cli():
 
 
 @cli.command()
+@click.option("--device", type=click.Choice(['cpu', 'cuda']), default='cpu')
 @click.option("--model_type", type=click.Choice(AGENT_CONSTRUCTORS.keys()), required=True)
-# @click.option("--env_type", type=click.Choice(ENV_CONSTRUCTORS.keys()), required=True)
 @click.option("--env_type", type=str, default='CartPole-v0')
 @click.option("--env_sticky_prob", type=float, default=0.25)
 @click.option("--episodes", type=int, required=True)
@@ -97,6 +98,7 @@ def cli():
 @click.option("--show_policy", type=bool, default=False)
 @click.option("--estimate_variance", type=bool, default=False)
 def run(
+    device,
     model_type,
     env_type,
     env_sticky_prob,
@@ -122,6 +124,8 @@ def run(
     except json.decoder.JSONDecodeError as exception:
         print("Unable to parse lr_scheduler_kwargs. JSON error: " + str(exception) + ".")
 
+    device_torch = torch.device(device)
+
     for _ in range(run_n_times):
         config = {
             'model_type': model_type,
@@ -134,7 +138,6 @@ def run(
             'gamma_env': gamma_env,
             'eps_per_train': eps_per_train,
             #'git_sha': get_current_sha(),
-            'analytical': analytical,
             'exp_name': exp_name,
         }
         logger_manager = LoggingManager()
@@ -146,8 +149,9 @@ def run(
             logger_manager.add_logger(local_logger)
         logger_manager.log_config(config)
         
-        env = get_sticky_actions_gym_env(env, env_sticky_prob)
+        env = get_sticky_actions_gym_env(env_type, env_sticky_prob)
         state_space_shape = env.observation_space.shape
+        n_actions = env.action_space.n
         
         if model_type not in AGENT_CONSTRUCTORS:
             raise Exception("AGENT TYPE NOT IMPLEMENTED")
@@ -157,20 +161,19 @@ def run(
                 scheduler = LR_SCHEDULERS[lr_scheduler]
             agent = AGENT_CONSTRUCTORS[model_type]
             agent_kwargs = ignore_extra_args(agent,
-                                             env=env,
-                                             env_shape=env_shape,
+                                             env_shape=state_space_shape,
+                                             n_actions=n_actions,
                                              alpha=alpha,
                                              beta=beta,
                                              delta=delta,
                                              gamma_env=gamma_env,
+                                             device=device_torch,
                                              episode_length=epi_length,
-                                             analytical=analytical,
                                              lr_scheduler=scheduler)
             agent = agent(**{**agent_kwargs, **lr_scheduler_kwargs})
 
         train(agent, env, episodes, epi_length, eps_per_train, log_freq=log_freq,
-              logger=logger_manager, estimate_policy=estimate_policy,
-              analytical=analytical, estimate_variance=estimate_variance)
+              logger=logger_manager, estimate_variance=estimate_variance)
 
         if show_policy is True:
             if log_folder is not None:

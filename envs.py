@@ -4,7 +4,7 @@ import gym
 
 
 def get_sticky_actions_gym_env(env_name, sticky_action_prob=0.25):
-    env = gym.make(env_name)
+    env = gym.make(env_name).unwrapped
     env = StickyActionEnv(env, sticky_action_prob)
     return env
 

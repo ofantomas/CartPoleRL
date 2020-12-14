@@ -36,22 +36,23 @@ class ReinforceAgent:
         self.gamma_env = gamma_env
         self.lr_scheduler = lr_scheduler
         self.env_shape = env_shape
+        self.n_actions = n_actions
         self.device = device
-        self.pi = Policy(env_shape, n_actions).to(self.device)
-        self.pi_opt = torch.optim.SGD(params=self.pi.parameters(), lr=self.alpha)
+        self.pi = Policy(self.env_shape, self.n_actions).to(self.device)
+        self.pi_opt = torch.optim.Adam(params=self.pi.parameters(), lr=self.alpha)
         if self.lr_scheduler is not None:
             self.pi_scheduler = self.lr_scheduler(self.pi_opt, **lr_scheduler_kwargs)
 
     def select_action(self, state, inference):
         # env state to [1 x state_shape] tensor
-        state = torch.FloatTensor(state).unsqueeze(0)
-        probs = self.pi(state)['logits'].softmax(0) # TODO check sizes!
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        probs = self.pi(state)['logits'].squeeze().softmax(0) 
         if inference:  # Take maxprob
             act = probs.argmax()
         else:
             cat = torch.distributions.Categorical(probs=probs)
             act = cat.sample()
-        return act
+        return act.cpu().numpy()
 
     # Accumulate rewards across time
     def accumulate_rewards(self, rewards, dones):
@@ -70,27 +71,17 @@ class ReinforceAgent:
         loss = - log_probs * advantage.detach()
         return loss, policy
 
-    def compute_var_per_sa_pair(self, states, actions, loss):
-        # Compute mean variance of losses per sa pair
-        tuple_list = list(zip(states.cpu().numpy(), actions.cpu().numpy(), loss.detach().numpy()))
-        tuple_list.sort(key=lambda x: x[:2])  # groupby needs it
-        grouped = groupby(tuple_list, lambda x: x[:2])
-        variances = [np.var([x[2] for x in lst]) for k, lst in grouped]
-        mean_var = np.mean(variances)
-        return mean_var
-
     # Does what it says, for easy re-use across methods
     # Returns policy gradient/loss values and the parametrized policy distribution, for logging
     def make_pg_step(self, states, actions, advantage):
         loss, policy = self.compute_eligibility(states, actions, advantage)
-        mean_var = self.compute_var_per_sa_pair(states, actions, loss)
         self.pi_opt.zero_grad()
-        loss.mean().backward()
+        loss.sum().backward()
         self.pi_opt.step() # SGD step
         if self.lr_scheduler is not None:
             self.pi_scheduler.step()
 
-        return loss, policy, mean_var
+        return loss, policy
 
     # Given a trajectory for one episode, update the policy
     def update(self, states, actions, rewards, next_states, dones):
@@ -103,9 +94,9 @@ class ReinforceAgent:
         cum_rewards = torch.Tensor(self.accumulate_rewards(rewards, dones)).to(self.device)
 
         # Next, compute elegibility
-        loss, policy, mean_var = self.make_pg_step(states, actions, cum_rewards)
+        loss, policy = self.make_pg_step(states, actions, cum_rewards)
 
-        return loss.mean().item(), mean_var, policy.entropy().mean().item(), cum_rewards.mean()
+        return loss.sum().item(), policy.entropy().mean().item(), cum_rewards.mean()
 
 
 # Extension of reinforce to include a value function baseline

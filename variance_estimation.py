@@ -1,7 +1,6 @@
 import numpy as np
 from scipy import special
 import torch
-from envs import FrozenLakeEnv
 
 
 OPTIMAL_POLICY = [[-1000, -1000,  -1000,  1000],
